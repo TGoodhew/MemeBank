@@ -60,10 +60,13 @@ def test_withdrawn_memes_are_hidden_but_kept(store):
 
 def test_memes_added_by_another_process_show_up_after_the_cache_expires(store):
     backfill = AzureStore(CONN, table_name=store.table.table_name, container=store.blobs.container_name)
-    assert store.all() == []  # now cached
+    depositor = AzureStore(CONN, table_name=store.table.table_name, container=store.blobs.container_name)
+    assert store.all() == [] and depositor.all() == []  # both now cached
     backfill.put(meme(backfill.next_number(), "slack:F9"), b"nine")
     assert store.all() == []  # still the cached view...
-    assert store.find_by_source("slack:F9").number == 1  # ...but deposits always check fresh, so no double-banking
+    # ...but deposits check fresh, so no double-banking. (A separate store, so `store` keeps its stale cache.)
+    assert depositor.find_by_source("slack:F9").number == 1
+    assert store.all() == []
     store._cache_at -= AzureStore.CACHE_SECONDS + 1  # a minute later
     assert [m.number for m in store.all()] == [1]
 

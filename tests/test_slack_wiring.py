@@ -150,6 +150,20 @@ def test_tag_it_straight_into_the_dm_tags_the_last_meme_banked_there(app_and_ban
     assert bank.asks == [("DTONY", "UTONY", 'tag #21 "Trump screamer" and "Beanie Girl"', None)]
 
 
+def test_tag_it_after_a_dm_deposit_finds_the_banked_reply_in_the_images_thread(app_and_bank):
+    app, bank, history = app_and_bank
+    history[None] = [  # newest first: Tony's DM'd image (its "Banked as #22" is a thread reply), then an older #21
+        {"ts": "30.0", "user": "UTONY", "text": "", "reply_count": 1, "files": IMG},
+        {"ts": "21.0", "user": BOT, "text": "Banked *#21: Leftists when they get what they want*. Here are the tags…"},
+    ]
+    history["30.0"] = [{"ts": "30.0", "user": "UTONY", "text": ""},
+                       {"ts": "30.5", "thread_ts": "30.0", "user": BOT, "text": "Banked as *#22: Cabin deck*. Here are…"}]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "31.0",
+               "text": "tag it cabin trip"})
+    wait_for(lambda: bank.asks)
+    assert bank.asks == [("DTONY", "UTONY", "tag #22 cabin trip", None)]  # not the older top-level #21
+
+
 def test_tag_it_with_nothing_banked_in_the_dm_is_left_for_the_bank_to_ask_which(app_and_bank):
     app, bank, history = app_and_bank
     send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "22.0",

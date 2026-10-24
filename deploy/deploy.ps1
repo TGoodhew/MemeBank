@@ -109,22 +109,34 @@ Invoke-Az containerapp update --name $AppName --resource-group $ResourceGroup `
     --set-env-vars @envVars --only-show-errors | Out-Null
 
 if ($cfg['ALERT_EMAIL']) {
-    Write-Host "== Alerts to $($cfg['ALERT_EMAIL']) (restarts, errors, gone quiet)"
+    Write-Host "== Alerts to $($cfg['ALERT_EMAIL']) (crash loop, errors, gone quiet)"
     Invoke-Az extension add --name scheduled-query --upgrade --only-show-errors | Out-Null
-    $appId = Invoke-Az containerapp show --name $AppName --resource-group $ResourceGroup --query id -o tsv
-    $workspace = Invoke-Az monitor log-analytics workspace list --resource-group $ResourceGroup --query "[0].id" -o tsv
+    # The workspace the app's environment actually sends its logs to (not just the first one in the group).
+    $customerId = Invoke-Az containerapp env show --name "$AppName-env" --resource-group $ResourceGroup `
+        --query "properties.appLogsConfiguration.logAnalyticsConfiguration.customerId" -o tsv
+    $workspace = Invoke-Az monitor log-analytics workspace list --query "[?customerId=='$customerId'].id | [0]" -o tsv
+    if (-not $workspace) { throw "Couldn't find the Log Analytics workspace ($customerId) for $AppName-env" }
     $group = Invoke-Az monitor action-group create --name "$AppName-alerts" --resource-group $ResourceGroup `
         --short-name $AppName.Substring(0, [Math]::Min(12, $AppName.Length)) `
         --action email owner $cfg['ALERT_EMAIL'] --only-show-errors --query id -o tsv
-    # A crash loop: a bad or revoked token, a missing setting. Normal deploys stay at 0-1 restarts.
-    Invoke-Az monitor metrics alert create --name "$AppName-restarts" --resource-group $ResourceGroup --scopes $appId `
-        --condition "max RestartCount > 3" --window-size 1h --evaluation-frequency 15m --severity 2 --action $group `
-        --description "The Meme Bank container keeps restarting. Check: az containerapp logs show -n $AppName -g $ResourceGroup --type system" `
+    # The first version used the RestartCount metric, which is a lifetime total per replica; replaced below.
+    if (Invoke-Az monitor metrics alert list --resource-group $ResourceGroup --query "[?name=='$AppName-restarts'].name" -o tsv) {
+        Invoke-Az monitor metrics alert delete --name "$AppName-restarts" --resource-group $ResourceGroup | Out-Null
+    }
+    # A crash loop (a bad or revoked token, a missing setting): one revision's container terminated again and again.
+    # Deploys don't log ContainerTerminated for the old revision, so this only counts real exits.
+    $system = "ContainerAppSystemLogs_CL | where ContainerAppName_s == '$AppName' and Reason_s == 'ContainerTerminated'"
+    Invoke-Az monitor scheduled-query create --name "$AppName-crashloop" --resource-group $ResourceGroup --scopes $workspace `
+        --condition "count 'CrashLoops' > 0" --condition-query "CrashLoops=$system | summarize n=count() by RevisionName_s | where n >= 3" `
+        --window-size 1h --evaluation-frequency 15m --severity 2 --action-groups $group `
+        --description "The Meme Bank container keeps exiting. Check: az containerapp logs show -n $AppName -g $ResourceGroup --type system" `
         --only-show-errors | Out-Null
     $logs = "ContainerAppConsoleLogs_CL | where ContainerAppName_s == '$AppName'"
-    # A deposit, search or upload failed: Claude unreachable, Slack errors, storage errors.
+    # A deposit, search or upload failed: Claude unreachable, Slack errors, storage errors. Anchored on the log
+    # format's level field and the start of a traceback, so a meme title can't set it off.
+    $errorLines = "Log_s matches regex @'^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d+ (ERROR|CRITICAL) ' or Log_s startswith 'Traceback (most recent call last)'"
     Invoke-Az monitor scheduled-query create --name "$AppName-errors" --resource-group $ResourceGroup --scopes $workspace `
-        --condition "count 'Errors' > 0" --condition-query "Errors=$logs | where Log_s has ' ERROR ' or Log_s has 'Traceback'" `
+        --condition "count 'Errors' > 0" --condition-query "Errors=$logs | where $errorLines" `
         --window-size 15m --evaluation-frequency 15m --severity 2 --action-groups $group `
         --description "The Meme Bank logged an error. Look in Log stream or Log Analytics for ERROR lines." `
         --only-show-errors | Out-Null

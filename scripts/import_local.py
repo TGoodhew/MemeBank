@@ -20,14 +20,13 @@ def date_to_posted_at(date: str) -> str:
     return datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc).isoformat() if date else ""
 
 
-def import_files(bank, paths: list[str], caption: str = "", posted_by: str = "", posted_at: str = "") -> list:
-    results = []
+def import_files(bank, paths: list[str], caption: str = "", posted_by: str = "", posted_at: str = ""):
+    """Yields (path, Deposit) as each file is banked, so a failure part-way still shows what was banked before it."""
     for path in paths:
         with open(path, "rb") as f:
             data = f.read()
-        results.append((path, bank.deposit_bytes(data, local_source_key(data), caption=caption,
-                                                 posted_by=posted_by, posted_at=posted_at)))
-    return results
+        yield path, bank.deposit_bytes(data, local_source_key(data), caption=caption,
+                                       posted_by=posted_by, posted_at=posted_at)
 
 
 def main() -> None:
