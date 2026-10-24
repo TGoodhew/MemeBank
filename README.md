@@ -16,7 +16,7 @@ Because the bank keeps its own copy of every image, a meme survives after Slack'
 | an image with "meme bank" anywhere in the message | banks it, reacts :bank:, and replies in a thread with its number and tags |
 | a link whose preview has a picture (e.g. an x.com post), with "meme bank" in the message | banks the preview picture once Slack unfurls the link |
 | a :bank: reaction on any image post | banks that post |
-| a meme that's already in the bank | replies "Already in the vault as #7" and doesn't bank it twice (it catches re-screenshots and resized copies too) |
+| a meme that's already in the bank | replies "Already in the vault as #7" and doesn't bank it twice (it catches re-screenshots and resized copies too, while a different meme on the same template, with different text, is banked as new) |
 | `hey meme bank, find me the France meme` | searches by meaning, so a Macron or Eiffel Tower meme still counts as "France" |
 | `hey meme bank, #12` | posts meme 12 |
 | `hey meme bank, random` | dealer's choice |
