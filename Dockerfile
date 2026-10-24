@@ -4,7 +4,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# No progress bar: its box-drawing characters crash the Azure CLI on Windows while it streams the cloud-build log
+RUN pip install --no-cache-dir --progress-bar off -r requirements.txt
 
 COPY memebank ./memebank
 COPY scripts ./scripts

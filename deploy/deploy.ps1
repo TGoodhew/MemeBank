@@ -24,7 +24,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)
 
-function Az {
+function Invoke-Az {
     # Runs az and stops on failure (PowerShell doesn't do that for external programs on its own).
     $out = & az @args
     if ($LASTEXITCODE -ne 0) { throw "az $($args -join ' ') failed (exit $LASTEXITCODE)" }
@@ -47,36 +47,36 @@ foreach ($k in "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "ANTHROPIC_API_KEY") {
 }
 
 Write-Host "== Checking Azure CLI login and extensions"
-$account = Az account show --query "{name:name, user:user.name}" -o tsv
+$account = Invoke-Az account show --query "{name:name, user:user.name}" -o tsv
 Write-Host "   Subscription/user: $account"
-Az extension add --name containerapp --upgrade --only-show-errors | Out-Null
-Az provider register --namespace Microsoft.App --only-show-errors | Out-Null
-Az provider register --namespace Microsoft.OperationalInsights --only-show-errors | Out-Null
+Invoke-Az extension add --name containerapp --upgrade --only-show-errors | Out-Null
+Invoke-Az provider register --namespace Microsoft.App --only-show-errors | Out-Null
+Invoke-Az provider register --namespace Microsoft.OperationalInsights --only-show-errors | Out-Null
 
 Write-Host "== Resource group $ResourceGroup ($Location)"
-Az group create --name $ResourceGroup --location $Location --only-show-errors | Out-Null
+Invoke-Az group create --name $ResourceGroup --location $Location --only-show-errors | Out-Null
 
 if (-not $StorageAccount) {
-    $StorageAccount = Az storage account list --resource-group $ResourceGroup --query "[?starts_with(name,'memebank')].name | [0]" -o tsv
+    $StorageAccount = Invoke-Az storage account list --resource-group $ResourceGroup --query "[?starts_with(name,'memebank')].name | [0]" -o tsv
     if (-not $StorageAccount) {
         $StorageAccount = "memebank" + (-join ((48..57) + (97..122) | Get-Random -Count 8 | ForEach-Object { [char]$_ }))
     }
 }
 Write-Host "== Storage account $StorageAccount"
-Az storage account create --name $StorageAccount --resource-group $ResourceGroup --location $Location `
+Invoke-Az storage account create --name $StorageAccount --resource-group $ResourceGroup --location $Location `
     --sku Standard_LRS --kind StorageV2 --min-tls-version TLS1_2 --allow-blob-public-access false --only-show-errors | Out-Null
-$conn = Az storage account show-connection-string --name $StorageAccount --resource-group $ResourceGroup --query connectionString -o tsv
+$conn = Invoke-Az storage account show-connection-string --name $StorageAccount --resource-group $ResourceGroup --query connectionString -o tsv
 
 Write-Host "== Building and deploying the container (cloud build, takes a few minutes)"
-Az containerapp up --name $AppName --resource-group $ResourceGroup --location $Location `
+Invoke-Az containerapp up --name $AppName --resource-group $ResourceGroup --location $Location `
     --environment "$AppName-env" --source . | Out-Host
 
 # The bot only makes outbound connections; make sure no web endpoint (and its health probe) is configured.
-$ingress = Az containerapp show --name $AppName --resource-group $ResourceGroup --query "properties.configuration.ingress.fqdn" -o tsv
-if ($ingress) { Az containerapp ingress disable --name $AppName --resource-group $ResourceGroup --only-show-errors | Out-Null }
+$ingress = Invoke-Az containerapp show --name $AppName --resource-group $ResourceGroup --query "properties.configuration.ingress.fqdn" -o tsv
+if ($ingress) { Invoke-Az containerapp ingress disable --name $AppName --resource-group $ResourceGroup --only-show-errors | Out-Null }
 
 Write-Host "== Storing secrets"
-Az containerapp secret set --name $AppName --resource-group $ResourceGroup --secrets `
+Invoke-Az containerapp secret set --name $AppName --resource-group $ResourceGroup --secrets `
     "slack-bot-token=$($cfg['SLACK_BOT_TOKEN'])" `
     "slack-app-token=$($cfg['SLACK_APP_TOKEN'])" `
     "anthropic-api-key=$($cfg['ANTHROPIC_API_KEY'])" `
@@ -93,7 +93,7 @@ $envVars = @(
 foreach ($k in "MEME_CHANNEL_IDS", "ADMIN_USER_IDS", "ACK_MODE", "BANK_REACTIONS", "TAG_MODEL", "SEARCH_MODEL") {
     if ($cfg[$k]) { $envVars += "$k=$($cfg[$k])" }
 }
-Az containerapp update --name $AppName --resource-group $ResourceGroup `
+Invoke-Az containerapp update --name $AppName --resource-group $ResourceGroup `
     --min-replicas 1 --max-replicas 1 --cpu 0.25 --memory 0.5Gi `
     --set-env-vars @envVars --only-show-errors | Out-Null
 
