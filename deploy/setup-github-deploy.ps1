@@ -76,11 +76,16 @@ if (-not $has) {
 }
 
 Write-Host "== GitHub repository secrets (masked in the Actions logs) and variables"
+$oldVars = @(& gh variable list --repo $Repo --json name --jq ".[].name")
+if ($LASTEXITCODE -ne 0) { throw "gh variable list failed" }
 foreach ($kv in @(@("AZURE_CLIENT_ID", $appId), @("AZURE_TENANT_ID", $tenant), @("AZURE_SUBSCRIPTION_ID", $subscription),
                   @("ACR_NAME", $registry))) {
     & gh secret set $kv[0] --repo $Repo --body $kv[1]
     if ($LASTEXITCODE -ne 0) { throw "gh secret set $($kv[0]) failed" }
-    & gh variable delete $kv[0] --repo $Repo 2>$null  # older versions of this script stored them as plain variables
+    if ($kv[0] -in $oldVars) {  # older versions of this script stored them as plain variables
+        & gh variable delete $kv[0] --repo $Repo
+        if ($LASTEXITCODE -ne 0) { throw "gh variable delete $($kv[0]) failed" }
+    }
 }
 & gh variable set RESOURCE_GROUP --repo $Repo --body $ResourceGroup  # the workflow deploys to this group
 if ($LASTEXITCODE -ne 0) { throw "gh variable set RESOURCE_GROUP failed" }
