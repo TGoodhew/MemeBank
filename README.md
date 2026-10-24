@@ -15,7 +15,7 @@ Because the bank keeps its own copy of every image, a meme survives after Slack'
 
 | You post | The bank does |
 |---|---|
-| an image with "meme bank" anywhere in the message | banks it, reacts :bank:, and replies in a thread with its number and tags |
+| an image with "meme bank" anywhere in the message | banks it, reacts :bank:, and replies in a thread with its number and tags. It also DMs whoever banked it the full tag list: reply in that DM thread with more words (comma separated) and they're added as tags |
 | a link whose preview has a picture (e.g. an x.com post), with "meme bank" in the message | banks the preview picture once Slack unfurls the link |
 | a :bank: reaction on any image post | banks that post |
 | a meme that's already in the bank | replies "Already in the vault as #7" and doesn't bank it twice (it catches re-screenshots and resized copies too, while a different meme on the same template, with different text, is banked as new) |
@@ -25,7 +25,9 @@ Because the bank keeps its own copy of every image, a meme survives after Slack'
 | `hey meme bank, stats` | how many memes it has, plus the most common tags |
 | `hey meme bank, forget #12` | takes it out of the vault (only the person who deposited it, or someone listed in ADMIN_USER_IDS). It's hidden, not deleted |
 | `hey meme bank, restore #12` | puts a forgotten meme back, with the same number (same people as `forget`) |
-| `hey meme bank, retag #12` | has Claude tag it again |
+| `hey meme bank, tag #12 ilhan omar, cabin trip` | adds tags (anyone can). Use it for names and in-jokes: Claude only names people whose names are written in the image or the caption |
+| `hey meme bank, untag #12 cabin trip` | removes a tag (the person who deposited it, or an admin) |
+| `hey meme bank, retag #12` | has Claude tag it again. Tags people added are kept |
 | `hey meme bank` or `hey meme bank, help` | shows the help |
 
 It also responds to "yo/hi/ok meme bank …", "Meme bank: …", an @mention, or a DM, where everything you type is treated as a question. Plain chat that happens to mention the meme bank, like "this is why the meme bank is important", gets ignored unless the message has an image in it.
@@ -89,7 +91,7 @@ Adjust the file names to match what's actually in Downloads. If the backfill alr
 ## Running it
 
 - **Logs:** `az containerapp logs show -n memebank -g rg-memebank --follow`
-- **Settings:** edit `.env` and re-run `deploy.ps1`. `ACK_MODE=reaction` makes it react with :bank: without replying in a thread. `MEME_CHANNEL_IDS` takes a comma-separated list if you want more channels.
+- **Settings:** edit `.env` and re-run `deploy.ps1`. `ACK_MODE=reaction` makes it react with :bank: without replying in a thread. `DM_TAGS=off` stops the tag DM after each deposit. `MEME_CHANNEL_IDS` takes a comma-separated list if you want more channels.
 - **Models:** `TAG_MODEL` and `SEARCH_MODEL` default to `claude-sonnet-5-5`. Set either to `claude-haiku-5-5` for cheaper tagging or searching.
 - **Cost:** a container app with one small replica running all the time, a storage account holding a few MB, and possibly a Basic container registry created by the cloud build. Expect a few dollars to roughly $20 a month on the Azure side, so check Cost Management after the first week. Claude usage at a channel's meme rate is small: roughly a cent or two per deposit or search.
 - **Back up:** `python -m scripts.export --env-file .env.azure` copies the catalogue and every image to `.\memebank-backup`.

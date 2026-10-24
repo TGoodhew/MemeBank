@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from . import images
 from .search import search
 from .store import Meme
-from .tagger import Tags
+from .tagger import Tags, clean_tags
 from .triggers import Command, parse_command
 
 log = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ HELP = """*The Meme Bank* :bank:
 • `hey meme bank, find me the France meme`
 • `hey meme bank, what have you got on socialism?`
 • `hey meme bank, #12`  ·  `random`  ·  `stats`
-• `hey meme bank, retag #12` (if the tags missed something)
+• `hey meme bank, tag #12 names, in-jokes` (anyone; `untag #12 word` for the poster)  ·  `retag #12` (Claude again)
 • `hey meme bank, forget #12` (your own deposits; `restore #12` undoes it)
 You can also @mention me, or DM me a question without the "hey meme bank"."""
 
@@ -83,12 +83,14 @@ def images_in(message: dict, channel: str) -> list[ImageRef]:
 
 
 class MemeBank:
-    def __init__(self, store, tagger, bot_token: str = "", admin_user_ids=(), ack_mode: str = "thread", fetch=None):
+    def __init__(self, store, tagger, bot_token: str = "", admin_user_ids=(), ack_mode: str = "thread", fetch=None,
+                 dm_tags: bool = True):
         self.store = store
         self.tagger = tagger
         self.bot_token = bot_token
         self.admins = set(admin_user_ids)
         self.ack_mode = ack_mode
+        self.dm_tags = dm_tags  # after a new deposit, DM whoever banked it the tags and how to add more
         self._fetch = fetch or images.fetch
         self._deposit_lock = threading.Lock()  # one deposit at a time keeps numbering and dedup simple
 
@@ -120,7 +122,9 @@ class MemeBank:
             log.info("Banked #%s %s", meme.number, meme.title)
             return Deposit(meme, "new")
 
-    def deposit_message(self, client, channel: str, message: dict, acknowledge: bool = True) -> list[Deposit]:
+    def deposit_message(self, client, channel: str, message: dict, acknowledge: bool = True,
+                        banked_by: str = "") -> list[Deposit]:
+        """banked_by: who asked for it (the poster, or whoever added the :bank: reaction)."""
         refs = images_in(message, channel)
         if not refs:
             return []
@@ -148,10 +152,25 @@ class MemeBank:
                 if acknowledge:
                     self._say(client, channel, f":warning: Couldn't bank that one: {e}", thread_ts=thread)
         if acknowledge:
-            self._acknowledge(client, channel, ts, results, thread)
+            in_dm = channel.startswith("D")
+            self._acknowledge(client, channel, ts, results, thread, in_dm)
+            if self.dm_tags and not in_dm:  # a DM deposit gets the same hint in its own thread instead
+                for r in results:
+                    if r.status == "new":
+                        self._dm_tags(client, banked_by or message.get("user", ""), r.meme)
         return results
 
-    def _acknowledge(self, client, channel: str, ts: str, results: list[Deposit], thread: str = "") -> None:
+    def _tag_hint(self, meme: Meme) -> str:
+        return (f"Here are the tags I used:\n_{', '.join(meme.all_tags)}_\n"
+                f"Want to add others? Reply in this thread with them, comma separated, or from anywhere: "
+                f"`hey meme bank, tag #{meme.number} names, in-jokes`")
+
+    def _dm_tags(self, client, user: str, meme: Meme) -> None:
+        if user.startswith(("U", "W")):  # a Slack person, not a bot or a local import
+            self._say(client, user, f"Banked *#{meme.number}: {meme.title}*. {self._tag_hint(meme)}")
+
+    def _acknowledge(self, client, channel: str, ts: str, results: list[Deposit], thread: str = "",
+                     in_dm: bool = False) -> None:
         fresh = [r for r in results if r.status == "new"]
         dupes = [r for r in results if r.status == "duplicate"]
         if fresh or dupes:
@@ -163,7 +182,10 @@ class MemeBank:
             return
         lines = []
         for r in fresh:
-            lines.append(f"Banked as *#{r.meme.number}: {r.meme.title}*\n_{', '.join(r.meme.tags[:12])}_")
+            if in_dm and self.dm_tags:
+                lines.append(f"Banked as *#{r.meme.number}: {r.meme.title}*. {self._tag_hint(r.meme)}")
+            else:
+                lines.append(f"Banked as *#{r.meme.number}: {r.meme.title}*\n_{', '.join(r.meme.all_tags[:12])}_")
         for r in dupes:
             lines.append(f"Already in the vault as *#{r.meme.number}: {r.meme.title}*. The meme bank never forgets.")
         for r in results:
@@ -179,7 +201,7 @@ class MemeBank:
         memes = self.store.all()
         if cmd.name == "help":
             self._say(client, channel, HELP, thread_ts)
-        elif cmd.name in ("get", "forget", "restore", "retag"):
+        elif cmd.name in ("get", "forget", "restore", "retag", "tag", "untag"):
             self._numbered(client, channel, user, cmd, thread_ts)
         elif not memes:
             self._say(client, channel, "The vault is empty. Post something \"for the meme bank\" to make the first deposit.", thread_ts)
@@ -220,6 +242,30 @@ class MemeBank:
                                            f"`hey meme bank, restore #{n}` puts it back.", thread_ts)
             else:
                 self._say(client, channel, f"Only whoever deposited #{n} (or a bank manager) can withdraw it.", thread_ts)
+        elif cmd.name == "tag":  # anyone can add tags
+            words = clean_tags(cmd.query.split(","))
+            added = [t for t in words if t not in meme.all_tags]
+            if not words:
+                self._say(client, channel, f"Give me some words to tag #{n} with, comma separated.", thread_ts)
+            elif added:
+                meme.extra_tags = clean_tags(meme.extra_tags + added)
+                self.store.put(meme, None)
+                self._say(client, channel, f"Tagged *#{n}: {meme.title}* with _{', '.join(added)}_\n"
+                                           f"All tags: _{', '.join(meme.all_tags)}_", thread_ts)
+            else:
+                self._say(client, channel, f"#{n} already has those tags.", thread_ts)
+        elif cmd.name == "untag":
+            words = clean_tags(cmd.query.split(","))
+            if not allowed:
+                self._say(client, channel, f"Only whoever deposited #{n} (or a bank manager) can remove its tags.", thread_ts)
+            elif not any(t in meme.all_tags for t in words):
+                self._say(client, channel, f"#{n} doesn't have {', '.join(words) or 'that tag'}.", thread_ts)
+            else:
+                meme.tags = [t for t in meme.tags if t not in words]  # a retag may bring Claude's back
+                meme.extra_tags = [t for t in meme.extra_tags if t not in words]
+                self.store.put(meme, None)
+                self._say(client, channel, f"Removed _{', '.join(words)}_ from *#{n}: {meme.title}*\n"
+                                           f"All tags: _{', '.join(meme.all_tags)}_", thread_ts)
         else:
             self._retag(client, channel, meme, thread_ts)
 
@@ -239,11 +285,12 @@ class MemeBank:
         t = self.tagger.tag(small, small_type, meme.caption)
         meme.title, meme.description, meme.text_in_image, meme.tags = t.title, t.description, t.text_in_image, t.tags
         self.store.put(meme, None)
-        self._say(client, channel, f"Re-tagged *#{meme.number}: {meme.title}*\n_{', '.join(meme.tags[:12])}_", thread_ts)
+        kept = f"\n(kept the tags people added: {', '.join(meme.extra_tags)})" if meme.extra_tags else ""
+        self._say(client, channel, f"Re-tagged *#{meme.number}: {meme.title}*\n_{', '.join(meme.tags[:12])}_{kept}", thread_ts)
 
     @staticmethod
     def _stats(memes: list[Meme]) -> str:
-        counts = collections.Counter(t for m in memes for t in m.tags)
+        counts = collections.Counter(t for m in memes for t in m.all_tags)
         top = ", ".join(f"{t} ({n})" for t, n in counts.most_common(10))
         newest = memes[-1]
         return (f":bank: *{len(memes)} memes* on deposit.\nNewest: #{newest.number} {newest.title}\n"

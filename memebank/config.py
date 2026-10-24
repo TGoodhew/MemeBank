@@ -37,6 +37,8 @@ class Config:
     admin_user_ids: list[str] = field(default_factory=list)
     # "thread" = react + short thread reply with the tags; "reaction" = react only.
     ack_mode: str = "thread"
+    # DM whoever banked a meme its full tag list and how to add more ("off" to stop).
+    dm_tags: bool = True
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -56,6 +58,7 @@ class Config:
             bank_reactions=_list("BANK_REACTIONS", "bank"),
             admin_user_ids=_list("ADMIN_USER_IDS"),
             ack_mode=e("ACK_MODE", "thread").lower(),
+            dm_tags=e("DM_TAGS", "on").strip().lower() not in ("off", "false", "0", "no"),
         )
 
 
