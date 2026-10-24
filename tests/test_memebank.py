@@ -116,6 +116,9 @@ def setup(tmp_path):
     ("add it to the memebank please", True, False, ("bank", "")),
     ("lol :bank:", True, False, ("bank", "")),
     ("meme bank deposit", True, False, ("bank", "")),
+    ("put this one in the meme bank", True, False, ("bank", "")),
+    ("Is this already in the meme bank?", True, False, ("confirm", "")),  # "in the meme bank" without a verb
+    ("Did I post this to the meme bank?", True, False, ("confirm", "")),
     ("A meme for the meme bank <@U6UTZEXAB|kevin>", False, False, None),  # link not unfurled yet: not a question
     ("This is why the meme bank is important", False, False, None),
     ("just a cat picture", True, False, None),
@@ -532,6 +535,44 @@ def test_an_image_that_only_mentions_the_bank_gets_a_dm_asking_with_the_post_in_
     assert len(client.named("chat_postMessage")) == 1
 
 
+def test_a_post_and_its_preview_arriving_together_get_one_question_not_two(setup):
+    import threading
+
+    bank, store, tagger, client = setup
+    msg = slack_msg("100.1", "the meme bank is important", "F1", user="UTONY")
+    asked = []
+    threads = [threading.Thread(target=lambda: asked.append(bank.ask_to_bank(client, "CGEN", msg))) for _ in range(8)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert asked.count(True) == 1 and len(client.named("chat_postMessage")) == 1
+
+
+def test_a_failed_question_can_be_asked_again(setup):
+    bank, store, tagger, client = setup
+
+    class Flaky(FakeClient):
+        failures = 1
+
+        def chat_postMessage(self, **kw):
+            if self.failures:
+                self.failures -= 1
+                raise RuntimeError("ratelimited")
+            self.calls.append(("chat_postMessage", kw))
+
+    flaky = Flaky()
+    msg = slack_msg("100.1", "the meme bank is important", "F1", user="UTONY")
+    assert not bank.ask_to_bank(flaky, "CGEN", msg)
+    assert bank.ask_to_bank(flaky, "CGEN", msg) and len(flaky.named("chat_postMessage")) == 1
+
+
+def test_a_thread_reply_keeps_its_thread_in_the_questions_metadata(setup):
+    bank, store, tagger, client = setup
+    reply = {**slack_msg("100.2", "the meme bank is important", "F1", user="UTONY"), "thread_ts": "100.1"}
+    bank.ask_to_bank(client, "CGEN", reply)
+    payload = client.named("chat_postMessage")[0]["metadata"]["event_payload"]
+    assert payload == {"channel": "CGEN", "ts": "100.2", "thread_ts": "100.1"}
+
+
 def test_no_need_to_ask_about_something_already_banked(setup):
     bank, store, tagger, client = setup
     bank.deposit_message(client, "CGEN", slack_msg("100.1", "a meme for the meme bank", "F1"))
@@ -545,7 +586,8 @@ def test_a_posted_meme_says_how_to_tag_it_and_ask_for_its_removal(setup):
     _fill(bank, client)
     bank.handle_ask(client, "CGEN", "U", "#2")
     comment = client.named("files_upload_v2")[0]["initial_comment"]
-    assert comment.startswith("*#2: Baguette diplomacy*") and "tag #2" in comment and "forget #2" in comment
+    assert comment.startswith("*#2: Baguette diplomacy*")
+    assert "`hey meme bank, tag #2 …`" in comment and "`hey meme bank, forget #2`" in comment  # copy-pasteable
 
 
 def test_empty_vault_and_stats_and_help(setup):

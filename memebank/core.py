@@ -96,6 +96,7 @@ class MemeBank:
         self._fetch = fetch or images.fetch
         self._deposit_lock = threading.Lock()  # one deposit at a time keeps numbering and dedup simple
         self._asked: set[tuple[str, str]] = set()  # posts we've already asked their poster about (ask_to_bank)
+        self._asked_lock = threading.Lock()
 
     # ------------------------------------------------------------------ deposits
     def deposit_bytes(self, data: bytes, source_key: str, caption: str = "", posted_by: str = "",
@@ -167,11 +168,17 @@ class MemeBank:
         """An image that only *mentions* the meme bank: DM the poster to check instead of banking it. The DM carries
         the post's channel and ts as message metadata, so a "yes" in its thread knows what to bank."""
         user, ts = message.get("user", ""), message.get("ts", "")
-        if not user.startswith(("U", "W")) or (channel, ts) in self._asked:
+        if not user.startswith(("U", "W")):
             return False
+        with self._asked_lock:  # a post and its link preview can arrive at once, on different Bolt threads
+            if (channel, ts) in self._asked:
+                return False
+            self._asked.add((channel, ts))
         if any(self.store.find_by_source(r.key) for r in images_in(message, channel)):
-            return False  # already in the vault, nothing to ask
-        self._asked.add((channel, ts))
+            return False  # already in the vault, nothing to ask (and no need to ask later)
+        payload = {"channel": channel, "ts": ts}
+        if message.get("thread_ts") and message["thread_ts"] != ts:
+            payload["thread_ts"] = message["thread_ts"]  # a reply in a thread: where to look it up
         post = "your post"
         try:
             post = f"<{client.chat_getPermalink(channel=channel, message_ts=ts)['permalink']}|your post>"
@@ -182,9 +189,11 @@ class MemeBank:
                 channel=user, unfurl_links=False,
                 text=(f"You mentioned the meme bank with a picture in <#{channel}> ({post}). Want me to bank it? "
                       f"Reply `yes` in this thread, or react :bank: on the post. Otherwise I'll leave it be."),
-                metadata={"event_type": CONFIRM_EVENT, "event_payload": {"channel": channel, "ts": ts}})
+                metadata={"event_type": CONFIRM_EVENT, "event_payload": payload})
         except Exception:  # noqa: BLE001
             log.exception("Couldn't ask %s about %s/%s", user, channel, ts)
+            with self._asked_lock:
+                self._asked.discard((channel, ts))  # it never arrived, so a later event can try again
             return False
         return True
 
@@ -345,7 +354,7 @@ class MemeBank:
     def _post_meme(self, client, channel, meme: Meme, thread_ts=None, lead: str = "", extra: str = ""):
         who = f" deposited by <@{meme.posted_by}>" if meme.posted_by.startswith("U") else ""
         n = meme.number
-        how = f"\n_#{n} · add tags: `hey meme bank, tag #{n} …` · ask to remove: `forget #{n}`_"
+        how = f"\n_#{n} · add tags: `hey meme bank, tag #{n} …` · ask to remove: `hey meme bank, forget #{n}`_"
         comment = f"{lead + ' ' if lead else ''}*#{n}: {meme.title}*{who}{extra}{how}"
         try:
             data = self.store.get_image(meme)

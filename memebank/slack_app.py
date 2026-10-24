@@ -12,8 +12,9 @@ from .triggers import classify, parse_command
 log = logging.getLogger(__name__)
 
 BANKED_RE = re.compile(r"Banked (?:as )?\*#(\d+)")  # the bot's own "Banked as *#12: ..." messages
-YES_RE = re.compile(r"\s*(?:y|yes|yep|yeah|yup|sure|ok|okay|please|bank it|store it|do it|go ahead)\b", re.I)
-NO_RE = re.compile(r"\s*(?:n|no|nope|nah|don'?t|leave it|no thanks)\b", re.I)
+# Answers to "want me to bank it?". "please" alone isn't consent ("please don't"), and a no is checked first.
+YES_RE = re.compile(r"\s*(?:please\s+)?(?:y|yes|yep|yeah|yup|sure|ok|okay|bank it|store it|do it|go ahead)\b", re.I)
+NO_RE = re.compile(r"\s*(?:please\s+)?(?:n|no|nope|nah|don'?t|do not|leave it|skip it|no thanks)\b", re.I)
 
 IGNORED_SUBTYPES = {"bot_message", "message_deleted", "channel_join", "channel_leave", "channel_topic",
                     "channel_purpose", "channel_name", "pinned_item", "unpinned_item", "tombstone"}
@@ -40,7 +41,7 @@ def build_app(cfg, bank: MemeBank) -> App:
             msg = event.get("message") or {}
             if msg.get("bot_id") or not msg.get("attachments") or not images_in(msg, channel):
                 return
-            trig = classify(msg.get("text", ""), True, bot_user_id)
+            trig = classify(msg.get("text", ""), True, bot_user_id, is_dm=channel_type == "im")
             if trig and trig.kind == "bank":
                 bank.deposit_message(client, channel, msg)
             elif trig and trig.kind == "confirm":
@@ -81,7 +82,8 @@ def build_app(cfg, bank: MemeBank) -> App:
     def answer_confirm(client, event) -> bool:
         """A reply in the thread of a "want me to bank it?" DM. True if it was one (and has been dealt with)."""
         channel, thread_ts, text = event["channel"], event["thread_ts"], event.get("text", "")
-        yes, no = YES_RE.match(text), NO_RE.match(text)
+        no = NO_RE.match(text)
+        yes = not no and YES_RE.match(text)
         if not (yes or no):
             return False
         try:
@@ -97,7 +99,7 @@ def build_app(cfg, bank: MemeBank) -> App:
             bank.say(client, channel, "OK, I've left it out of the vault.", thread_ts)
             return True
         where = meta.get("event_payload") or {}
-        post = fetch_message(client, where.get("channel", ""), where.get("ts", ""))
+        post = fetch_message(client, where.get("channel", ""), where.get("ts", ""), where.get("thread_ts"))
         if not post:
             bank.say(client, channel, "I couldn't find that post any more, so there's nothing to bank.", thread_ts)
             return True
@@ -107,15 +109,19 @@ def build_app(cfg, bank: MemeBank) -> App:
                                    else "I couldn't bank that one (see the post's thread)."), thread_ts)
         return True
 
-    def fetch_message(client, channel: str, ts: str) -> dict | None:
-        """One message by channel and ts, whether it's a top-level post or a reply in a thread."""
+    def fetch_message(client, channel: str, ts: str, thread_ts: str | None = None) -> dict | None:
+        """One message by channel and ts, whether it's a top-level post or a reply in a thread (pass the thread's ts
+        when it's known; Slack also finds a reply from its own ts, which is what a reaction gives us)."""
         if not (channel and ts):
             return None
         try:
-            resp = client.conversations_history(channel=channel, latest=ts, oldest=ts, inclusive=True, limit=1)
-            msgs = [m for m in resp.get("messages", []) if m.get("ts") == ts]
+            msgs = []
+            if not thread_ts:
+                resp = client.conversations_history(channel=channel, latest=ts, oldest=ts, inclusive=True, limit=1)
+                msgs = [m for m in resp.get("messages", []) if m.get("ts") == ts]
             if not msgs:  # history only has top-level posts; a reply in a thread has to be looked up as one
-                resp = client.conversations_replies(channel=channel, ts=ts, latest=ts, oldest=ts, inclusive=True, limit=10)
+                resp = client.conversations_replies(channel=channel, ts=thread_ts or ts, latest=ts, oldest=ts,
+                                                    inclusive=True, limit=10)
                 msgs = [m for m in resp.get("messages", []) if m.get("ts") == ts]
         except Exception:  # noqa: BLE001
             log.exception("Couldn't load message %s/%s", channel, ts)

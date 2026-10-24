@@ -158,6 +158,44 @@ def test_yes_in_the_confirm_dm_banks_the_original_post_and_no_leaves_it(app_and_
     assert ("DTONY", "OK, I've left it out of the vault.", "50.0") in bank.said and len(bank.deposits) == 1
 
 
+@pytest.mark.parametrize("answer", ["please don't", "please leave it out", "do not", "no thanks"])
+def test_polite_refusals_are_refusals(app_and_bank, answer):
+    from memebank.core import CONFIRM_EVENT
+
+    app, bank, history = app_and_bank
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "meme bank", "files": IMG}]
+    history["40.0"] = [{"ts": "40.0", "user": BOT, "text": "Want me to bank it?",
+                        "metadata": {"event_type": CONFIRM_EVENT, "event_payload": {"channel": "CGEN", "ts": "10.0"}}}]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "41.0",
+               "thread_ts": "40.0", "text": answer})
+    wait_for(lambda: bank.said)
+    time.sleep(0.1)
+    assert bank.said == [("DTONY", "OK, I've left it out of the vault.", "40.0")] and bank.deposits == []
+
+
+def test_yes_finds_a_post_that_was_a_thread_reply_through_its_thread(app_and_bank):
+    from memebank.core import CONFIRM_EVENT
+
+    app, bank, history = app_and_bank
+    history["9.0"] = [{"ts": "9.0", "user": "UKEVIN", "text": "thread starter"},  # replies come from the thread's ts
+                      {"ts": "9.5", "thread_ts": "9.0", "user": "UTONY", "text": "meme bank", "files": IMG}]
+    history["60.0"] = [{"ts": "60.0", "user": BOT, "text": "Want me to bank it?", "metadata": {
+        "event_type": CONFIRM_EVENT, "event_payload": {"channel": "CGEN", "ts": "9.5", "thread_ts": "9.0"}}}]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "61.0",
+               "thread_ts": "60.0", "text": "yes"})
+    wait_for(lambda: bank.deposits)
+    assert bank.deposits == [("CGEN", "9.5")]
+
+
+def test_a_dm_link_preview_with_meme_bank_banks_like_any_dm(app_and_bank):
+    app, bank, _ = app_and_bank
+    send(app, {"type": "message", "subtype": "message_changed", "channel": "DTONY", "channel_type": "im",
+               "ts": "70.1", "message": {"ts": "70.0", "user": "UTONY", "text": "meme bank <https://x.com/a>",
+                                         "attachments": [{"image_url": "https://pbs.twimg.com/a.jpg"}]}})
+    wait_for(lambda: bank.deposits)
+    assert bank.deposits == [("DTONY", "70.0")] and bank.confirms == []
+
+
 def test_bank_reaction_deposits_the_message(app_and_bank):
     app, bank, history = app_and_bank
     history["6.0"] = [{"ts": "6.0", "user": "UKEVIN", "text": "lol", "files": IMG}]

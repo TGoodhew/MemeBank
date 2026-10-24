@@ -5,10 +5,14 @@ import re
 from dataclasses import dataclass
 
 BANK_RE = re.compile(r"\bmeme[\s-]?bank\b", re.I)
-# Saying it's a deposit: "a meme for the meme bank", "store this in the meme bank", "add to the memebank",
-# "meme bank deposit", or the :bank: emoji. Merely mentioning the meme bank isn't (see "confirm" below).
+# Saying it's a deposit: "a meme for the meme bank", "store this in the meme bank", "needs to be added again to
+# the meme bank", "meme bank deposit", or the :bank: emoji. "in/to the meme bank" needs a verb that puts something
+# there, so "is this already in the meme bank?" isn't one. Merely mentioning the meme bank asks first ("confirm").
+_PUT = (r"(?:add|adding|added|put|putting|store|storing|stored|save|saving|saved|stick|file|filed|deposit|deposited"
+        r"|bank|banked|throw|toss|send|goes|go|going)")
 DEPOSIT_RE = re.compile(
-    r"\b(?:for|to|into|in|onto)\s+(?:the\s+|our\s+)?meme[\s-]?bank\b"
+    rf"\b{_PUT}\b(?:\s+\S+){{0,3}}?\s+(?:in|into|to|onto)\s+(?:the\s+|our\s+)?meme[\s-]?bank\b"
+    r"|\bfor\s+(?:the\s+|our\s+)?meme[\s-]?bank\b"
     r"|\bmeme[\s-]?bank\s+(?:deposit|submission|entry)\b"
     r"|:bank:",
     re.I,
