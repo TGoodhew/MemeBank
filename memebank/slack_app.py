@@ -120,8 +120,8 @@ def build_app(cfg, bank: MemeBank) -> App:
                 n = found[0].number
                 bank.say(client, channel, f"OK, I won't bank it. It's already in the vault as #{n}, though; only a bank "
                                           f"manager can remove it (`hey meme bank, forget #{n}` asks one).", thread_ts)
-            else:
-                bank.say(client, channel, "OK, I've left it out of the vault.", thread_ts)
+            else:  # about this post only: a resized copy banked another way is a different source (#42)
+                bank.say(client, channel, "OK, I won't bank this post.", thread_ts)
             return True
         post = fetch_message(client, where.get("channel", ""), where.get("ts", ""), where.get("thread_ts"))
         if not post:

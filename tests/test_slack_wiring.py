@@ -176,7 +176,7 @@ def test_yes_in_the_confirm_dm_banks_the_original_post_and_no_leaves_it(app_and_
     send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "51.0",
                "thread_ts": "50.0", "text": "nah"})
     wait_for(lambda: len(bank.said) >= 2)
-    assert ("DTONY", "OK, I've left it out of the vault.", "50.0") in bank.said and len(bank.deposits) == 1
+    assert ("DTONY", "OK, I won't bank this post.", "50.0") in bank.said and len(bank.deposits) == 1
 
 
 @pytest.mark.parametrize("answer", ["please don't", "please leave it out", "do not", "no thanks", "okay, don't bank it",
@@ -193,7 +193,7 @@ def test_polite_refusals_are_refusals(app_and_bank, answer):
                "thread_ts": "40.0", "text": answer})
     wait_for(lambda: bank.said)
     time.sleep(0.1)
-    assert bank.said == [("DTONY", "OK, I've left it out of the vault.", "40.0")] and bank.deposits == []
+    assert bank.said == [("DTONY", "OK, I won't bank this post.", "40.0")] and bank.deposits == []
 
 
 def _pending_question(history, post_ts="10.0"):
@@ -216,7 +216,7 @@ def test_yes_or_no_sent_straight_into_the_dm_answers_the_pending_question(app_an
     if banks:
         assert bank.deposits == [("CGEN", "10.0")] and bank.banked_by == ["UTONY"]
     else:
-        assert bank.deposits == [] and bank.said == [("DTONY", "OK, I've left it out of the vault.", None)]
+        assert bank.deposits == [] and bank.said == [("DTONY", "OK, I won't bank this post.", None)]
 
 
 def test_a_top_level_yes_answers_the_question_before_it_not_a_newer_one(app_and_bank):
