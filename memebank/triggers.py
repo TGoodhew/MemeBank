@@ -18,6 +18,20 @@ DEPOSIT_RE = re.compile(
     re.I,
 )
 
+_NEGATION = re.compile(r"\b(?:not|don'?t|do\s+not|isn'?t|aren'?t|wasn'?t|never|no\s+need\s+to|shouldn'?t|won'?t"
+                       r"|can'?t|mustn'?t|nobody)\b", re.I)
+
+
+def says_deposit(text: str) -> bool:
+    """Deposit wording that isn't negated in its own sentence: "Please don't add this to the meme bank" and "This
+    isn't for the meme bank" aren't deposits (they go to the ask-first path instead)."""
+    for m in DEPOSIT_RE.finditer(text or ""):
+        sentence_before = re.split(r"[.!?\n]", text[:m.start()])[-1][-40:]
+        if not _NEGATION.search(sentence_before):
+            return True
+    return False
+
+
 _GREETING = r"(?:hey|hi|hello|yo|oi|ok|okay|g'?day|dear)"
 # "hey meme bank, find me the France meme" / "yo memebank what have you got on cats"
 ASK_WITH_GREETING = re.compile(
@@ -42,7 +56,7 @@ def classify(text: str, has_images: bool, bot_user_id: str | None = None, is_dm:
     text = text or ""
     mentioned = bool(bot_user_id) and f"<@{bot_user_id}" in text
 
-    if has_images and (DEPOSIT_RE.search(text) or mentioned or is_dm):
+    if has_images and (says_deposit(text) or mentioned or is_dm):
         return Trigger("bank")
     if has_images:
         return Trigger("confirm") if BANK_RE.search(text) else None

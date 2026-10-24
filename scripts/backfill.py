@@ -16,7 +16,7 @@ from slack_sdk import WebClient
 from memebank.config import Config, load_env, make_store
 from memebank.core import MemeBank, images_in
 from memebank.tagger import ClaudeTagger
-from memebank.triggers import BANK_RE, DEPOSIT_RE
+from memebank.triggers import BANK_RE, says_deposit
 
 
 def since_to_oldest(since: str) -> str:
@@ -34,16 +34,17 @@ def read_history(client, channel: str, oldest: str = "0") -> list[dict]:
             return messages
 
 
-def candidates(messages: list[dict], channel: str, pattern=DEPOSIT_RE) -> list[dict]:
+def candidates(messages: list[dict], channel: str, wanted=says_deposit) -> list[dict]:
     """People's posts with an image that say they're for the meme bank, oldest first so numbers follow posting
     order. Same rule as the bot: "a meme for the meme bank", "store this in the meme bank", :bank:."""
     return [m for m in reversed(messages)  # Slack returns newest first
-            if not m.get("bot_id") and pattern.search(m.get("text", "")) and images_in(m, channel)]
+            if not m.get("bot_id") and wanted(m.get("text", "")) and images_in(m, channel)]
 
 
 def mentions_only(messages: list[dict], channel: str) -> list[dict]:
     """Image posts that only *mention* the meme bank. Not banked; listed so they can be banked by :bank: reaction."""
-    return [m for m in candidates(messages, channel, BANK_RE) if not DEPOSIT_RE.search(m.get("text", ""))]
+    mentioned = candidates(messages, channel, lambda text: bool(BANK_RE.search(text)))
+    return [m for m in mentioned if not says_deposit(m.get("text", ""))]
 
 
 def bank_all(bank, client, channel: str, posts: list[dict], ack: bool = False) -> dict:

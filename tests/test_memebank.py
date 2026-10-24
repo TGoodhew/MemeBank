@@ -119,6 +119,10 @@ def setup(tmp_path):
     ("put this one in the meme bank", True, False, ("bank", "")),
     ("Is this already in the meme bank?", True, False, ("confirm", "")),  # "in the meme bank" without a verb
     ("Did I post this to the meme bank?", True, False, ("confirm", "")),
+    ("Please don't add this to the meme bank", True, False, ("confirm", "")),  # a refusal isn't a deposit
+    ("This isn't for the meme bank", True, False, ("confirm", "")),
+    ("Not for the meme bank. Just funny", True, False, ("confirm", "")),
+    ("Don't laugh. A meme for the meme bank", True, False, ("bank", "")),  # the negation is in another sentence
     ("A meme for the meme bank <@U6UTZEXAB|kevin>", False, False, None),  # link not unfurled yet: not a question
     ("This is why the meme bank is important", False, False, None),
     ("just a cat picture", True, False, None),
@@ -314,6 +318,22 @@ def test_only_a_bank_manager_can_forget_and_anyone_else_asks_one(setup):
     assert "I've asked a bank manager to remove #1" in posts[-1]["text"] and posts[-1]["channel"] == "CGEN"
     bank.handle_ask(client, "CGEN", "UADMIN", "forget #1")
     assert store.get(1) is None and "Withdrawn: #1" in client.named("chat_postMessage")[-1]["text"]
+
+
+def test_a_removal_request_nobody_received_says_so(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+
+    class AdminsUnreachable(FakeClient):
+        def chat_postMessage(self, **kw):
+            if kw["channel"] == "UADMIN":
+                raise RuntimeError("channel_not_found")
+            self.calls.append(("chat_postMessage", kw))
+
+    c = AdminsUnreachable()
+    bank.handle_ask(c, "CGEN", "UTONY", "forget #1")
+    text = c.named("chat_postMessage")[-1]["text"]
+    assert "couldn't reach a bank manager" in text and "I've asked" not in text and store.get(1) is not None
 
 
 def test_forget_with_no_bank_manager_configured_says_so(setup):
@@ -563,6 +583,16 @@ def test_a_failed_question_can_be_asked_again(setup):
     msg = slack_msg("100.1", "the meme bank is important", "F1", user="UTONY")
     assert not bank.ask_to_bank(flaky, "CGEN", msg)
     assert bank.ask_to_bank(flaky, "CGEN", msg) and len(flaky.named("chat_postMessage")) == 1
+
+
+def test_a_storage_hiccup_while_checking_doesnt_stop_a_later_question(setup, monkeypatch):
+    bank, store, tagger, client = setup
+    msg = slack_msg("100.1", "the meme bank is important", "F1", user="UTONY")
+    real = store.find_by_source
+    monkeypatch.setattr(store, "find_by_source", lambda key: (_ for _ in ()).throw(OSError("storage down")))
+    assert not bank.ask_to_bank(client, "CGEN", msg) and not client.named("chat_postMessage")
+    monkeypatch.setattr(store, "find_by_source", real)
+    assert bank.ask_to_bank(client, "CGEN", msg) and len(client.named("chat_postMessage")) == 1
 
 
 def test_a_thread_reply_keeps_its_thread_in_the_questions_metadata(setup):

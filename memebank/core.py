@@ -174,7 +174,14 @@ class MemeBank:
             if (channel, ts) in self._asked:
                 return False
             self._asked.add((channel, ts))
-        if any(self.store.find_by_source(r.key) for r in images_in(message, channel)):
+        try:
+            banked = any(self.store.find_by_source(r.key) for r in images_in(message, channel))
+        except Exception:  # noqa: BLE001  (storage unreachable: don't ask now, but let a later event try)
+            log.exception("Couldn't check whether %s/%s is banked", channel, ts)
+            with self._asked_lock:
+                self._asked.discard((channel, ts))
+            return False
+        if banked:
             return False  # already in the vault, nothing to ask (and no need to ask later)
         payload = {"channel": channel, "ts": ts}
         if message.get("thread_ts") and message["thread_ts"] != ts:
@@ -284,10 +291,14 @@ class MemeBank:
                 self._say(client, channel, f"There's no bank manager set up to remove #{n} (ADMIN_USER_IDS).", thread_ts)
             else:  # everyone else asks; a bank manager decides
                 where = f" from <#{channel}>" if channel.startswith(("C", "G")) else ""
-                for admin in self.admins:
-                    self._say(client, admin, f"<@{user}> asked to remove *#{n}: {meme.title}*{where}. "
-                                             f"`hey meme bank, forget #{n}` removes it; otherwise nothing changes.")
-                self._say(client, channel, f"I've asked a bank manager to remove #{n} {meme.title}.", thread_ts)
+                told = [self._say(client, admin, f"<@{user}> asked to remove *#{n}: {meme.title}*{where}. "
+                                                 f"`hey meme bank, forget #{n}` removes it; otherwise nothing changes.")
+                        for admin in self.admins]
+                if any(told):
+                    self._say(client, channel, f"I've asked a bank manager to remove #{n} {meme.title}.", thread_ts)
+                else:
+                    self._say(client, channel, f"I couldn't reach a bank manager just now, so #{n} is unchanged. "
+                                               f"Try `hey meme bank, forget #{n}` again in a bit.", thread_ts)
         elif cmd.name == "tag":  # anyone can add tags
             words = clean_tags(split_tags(cmd.query))
             new = [t for t in words if t not in meme.all_tags]
@@ -364,15 +375,18 @@ class MemeBank:
             log.exception("Upload failed for #%s, falling back to a link", meme.number)
             self._say(client, channel, comment + (f"\n{meme.permalink}" if meme.permalink else ""), thread_ts)
 
-    def say(self, client, channel, text, thread_ts=None):
-        self._say(client, channel, text, thread_ts)
+    def say(self, client, channel, text, thread_ts=None) -> bool:
+        return self._say(client, channel, text, thread_ts)
 
     @staticmethod
-    def _say(client, channel, text, thread_ts=None):
+    def _say(client, channel, text, thread_ts=None) -> bool:
+        """Post a message; False (and logged) if Slack refused it."""
         try:
             client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts, unfurl_links=False)
+            return True
         except Exception:  # noqa: BLE001
             log.exception("Couldn't post to %s", channel)
+            return False
 
 
 def local_source_key(data: bytes) -> str:
