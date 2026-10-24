@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import collections
+import difflib
 import hashlib
 import logging
 import random
+import re
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -18,6 +20,8 @@ from .triggers import Command, parse_command
 log = logging.getLogger(__name__)
 
 DUPLICATE_DISTANCE = 6  # dHash bits; reposts and re-screenshots land well inside this
+# ...but so do different memes on the same template, so a near picture is only a repost if its text matches too
+TEXT_MATCH = 0.9
 
 HELP = """*The Meme Bank* :bank:
 *Deposit:* post an image with "meme for the meme bank" in the message (or react to any image post with :bank:). I'll keep a copy and tag it.
@@ -45,6 +49,14 @@ class Deposit:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def same_text(a: str, b: str) -> bool:
+    """Whether two images' transcribed text is the same, allowing for case, punctuation and small misreads."""
+    a, b = (" ".join(re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).split()) for s in (a, b))
+    if not a or not b:
+        return a == b  # two text-free pictures go on the hash alone; text on only one of them means different memes
+    return difflib.SequenceMatcher(None, a, b).ratio() >= TEXT_MATCH
 
 
 def _ts_to_iso(ts: str) -> str:
@@ -88,11 +100,12 @@ class MemeBank:
             content_type = images.sniff(data)
             h = images.dhash(data)
             near = [(images.hamming(h, m.dhash), m) for m in self.store.all() if m.dhash]
-            near = [x for x in near if x[0] <= DUPLICATE_DISTANCE]
-            if near:
-                return Deposit(min(near, key=lambda x: x[0])[1], "duplicate")
+            near = sorted((x for x in near if x[0] <= DUPLICATE_DISTANCE), key=lambda x: x[0])
             small, small_type = images.for_claude(data)
             tags: Tags = self.tagger.tag(small, small_type, caption)
+            for _, m in near:  # closest picture first
+                if same_text(tags.text_in_image, m.text_in_image):
+                    return Deposit(m, "duplicate")
             number = self.store.next_number()
             meme = Meme(
                 number=number, source_key=source_key, title=tags.title, description=tags.description,
