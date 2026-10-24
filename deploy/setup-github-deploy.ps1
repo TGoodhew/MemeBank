@@ -65,7 +65,7 @@ if (-not $has) {
 
 Write-Host "== GitHub repository variables (IDs, not secrets)"
 foreach ($kv in @(@("AZURE_CLIENT_ID", $appId), @("AZURE_TENANT_ID", $tenant), @("AZURE_SUBSCRIPTION_ID", $subscription),
-                  @("ACR_NAME", $registry))) {
+                  @("ACR_NAME", $registry), @("RESOURCE_GROUP", $ResourceGroup))) {  # the workflow deploys to this group
     & gh variable set $kv[0] --repo $Repo --body $kv[1]
     if ($LASTEXITCODE -ne 0) { throw "gh variable set $($kv[0]) failed" }
 }
