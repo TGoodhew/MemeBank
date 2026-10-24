@@ -103,11 +103,12 @@ foreach ($who in @(@($appPrincipal, "ServicePrincipal"), @($me, "User"))) {
         }
     }
 }
-# New role assignments take a few minutes to work. Wait until signing in can actually read a meme row (checked as
-# you; the app's identity was granted at the same moment) before switching the bot over. Reading a row needs the
-# data role: listing tables would pass for an Owner without it.
-& az storage table create --name memes --account-name $StorageAccount --auth-mode login --only-show-errors -o none 2>$null
+# New role assignments take a few minutes to work. Wait until signing in can actually read a meme row as you (the
+# scripts need it; the app itself is checked after it's switched over, below). Reading a row needs the data role:
+# listing tables would pass for an Owner without it. Creating the table is retried too, since on a new account it
+# fails until the role works.
 foreach ($try in 1..30) {
+    & az storage table create --name memes --account-name $StorageAccount --auth-mode login --only-show-errors -o none 2>$null
     & az storage entity query --table-name memes --account-name $StorageAccount --auth-mode login --num-results 1 `
         --only-show-errors -o none 2>$null
     if ($LASTEXITCODE -eq 0) { break }
@@ -132,28 +133,54 @@ $envVars = @(
 foreach ($k in "MEME_CHANNEL_IDS", "ADMIN_USER_IDS", "ACK_MODE", "BANK_REACTIONS", "DM_TAGS", "TAG_MODEL", "SEARCH_MODEL") {
     if ($cfg[$k]) { $envVars += "$k=$($cfg[$k])" }
 }
-$old = Invoke-Az containerapp show --name $AppName --resource-group $ResourceGroup `
-    --query "properties.template.containers[0].env[?name=='AZURE_STORAGE_CONNECTION_STRING'].name | [0]" -o tsv
-$removeOld = if ($old) { @("--remove-env-vars", "AZURE_STORAGE_CONNECTION_STRING") } else { @() }
+# AZURE_STORAGE_ACCOUNT makes the bot sign in as its identity. Any old account-key setting stays in place until the
+# new revision has shown it can reach storage that way.
 Invoke-Az containerapp update --name $AppName --resource-group $ResourceGroup `
     --min-replicas 1 --max-replicas 1 --cpu 0.25 --memory 0.5Gi `
-    --set-env-vars @envVars @removeOld --only-show-errors | Out-Null
+    --set-env-vars @envVars --only-show-errors | Out-Null
+
+Write-Host "== Checking the bot reaches storage as its identity (before any key is taken away)"
+# At startup the bot creates its blob container and reads the catalogue, then logs "open for business": that line from
+# the new revision proves Table and Blob access by identity. Logs reach Log Analytics a few minutes late.
+Invoke-Az extension add --name log-analytics --upgrade --only-show-errors | Out-Null
+$customerId = Invoke-Az containerapp env show --name "$AppName-env" --resource-group $ResourceGroup `
+    --query "properties.appLogsConfiguration.logAnalyticsConfiguration.customerId" -o tsv
+$revision = Invoke-Az containerapp show --name $AppName --resource-group $ResourceGroup --query properties.latestRevisionName -o tsv
+$started = "ContainerAppConsoleLogs_CL | where RevisionName_s == '$revision' and Log_s has 'open for business (azure storage' | count"
+$ok = $false
+foreach ($try in 1..20) {
+    $n = & az monitor log-analytics query -w $customerId --analytics-query $started --query "[0].Count" -o tsv 2>$null
+    if ($LASTEXITCODE -eq 0 -and [int]$n -gt 0) { $ok = $true; break }
+    Start-Sleep -Seconds 30
+}
+$old = Invoke-Az containerapp show --name $AppName --resource-group $ResourceGroup `
+    --query "properties.template.containers[0].env[?name=='AZURE_STORAGE_CONNECTION_STRING'].name | [0]" -o tsv
+if (-not $ok) {
+    if ($old) {  # back to the account key, so the bot keeps working while the cause is found
+        Invoke-Az containerapp update --name $AppName --resource-group $ResourceGroup --remove-env-vars AZURE_STORAGE_ACCOUNT `
+            --only-show-errors | Out-Null
+    }
+    throw "Revision $revision didn't start on identity access within 10 minutes$(if ($old) { ' (put back on the account key)' }). " +
+          "Check: az containerapp logs show -n $AppName -g $ResourceGroup. Nothing was turned off."
+}
+
+Write-Host "== Turning off account-key access to storage (identity only from now on)"
 # The account-key connection string from before identity access is no longer used by anything.
+if ($old) {
+    Invoke-Az containerapp update --name $AppName --resource-group $ResourceGroup --remove-env-vars AZURE_STORAGE_CONNECTION_STRING `
+        --only-show-errors | Out-Null
+}
 if (Invoke-Az containerapp secret list --name $AppName --resource-group $ResourceGroup --query "[?name=='storage-connection'].name" -o tsv) {
     Invoke-Az containerapp secret remove --name $AppName --resource-group $ResourceGroup --secret-names storage-connection `
         --only-show-errors | Out-Null
 }
-
-Write-Host "== Turning off account-key access to storage (identity only from now on)"
 Invoke-Az storage account update --name $StorageAccount --resource-group $ResourceGroup --allow-shared-key-access false `
     --only-show-errors | Out-Null
 
 if ($cfg['ALERT_EMAIL']) {
     Write-Host "== Alerts to $($cfg['ALERT_EMAIL']) (crash loop, errors, gone quiet)"
     Invoke-Az extension add --name scheduled-query --upgrade --only-show-errors | Out-Null
-    # The workspace the app's environment actually sends its logs to (not just the first one in the group).
-    $customerId = Invoke-Az containerapp env show --name "$AppName-env" --resource-group $ResourceGroup `
-        --query "properties.appLogsConfiguration.logAnalyticsConfiguration.customerId" -o tsv
+    # The workspace the app's environment actually sends its logs to ($customerId, from the storage check above).
     $workspace = Invoke-Az monitor log-analytics workspace list --query "[?customerId=='$customerId'].id | [0]" -o tsv
     if (-not $workspace) { throw "Couldn't find the Log Analytics workspace ($customerId) for $AppName-env" }
     $group = Invoke-Az monitor action-group create --name "$AppName-alerts" --resource-group $ResourceGroup `

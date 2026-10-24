@@ -135,7 +135,7 @@ What it does, in order:
 | Storage by identity | Gives the container app a system-assigned managed identity, and grants it **and you** *Storage Table Data Contributor* and *Storage Blob Data Contributor* on the storage account. Then it waits, up to 10 minutes, until sign-in access actually works, because new role assignments take a few minutes. | 1–5 min |
 | Secrets | Stores the two Slack tokens and the Anthropic key as Container App secrets. There's no storage key: the app reaches storage as its identity. | seconds |
 | Settings | Points the environment variables at those secrets, sets `STORAGE_BACKEND=azure` and your channel and admin settings, sizes the app at 0.25 vCPU / 0.5 GiB, and pins it at exactly 1 replica. | ~1 min |
-| Account keys off | Turns off account-key (shared key) access on the storage account, so only signed-in identities get in. | seconds |
+| Identity check, then keys off | Switches the bot to its identity, **keeping** any old key setting, and waits up to 10 minutes for the new revision to log `open for business` in Log Analytics. That proves it reached the tables and blobs as its identity. Only then does it remove the old key setting and secret and turn off account-key (shared key) access. If the check fails, it puts the bot back on the key and stops, without turning anything off. | 2–5 min |
 | `.env.azure` | Writes your settings plus the storage account **name** (no key) to `.env.azure`, for the backfill, import and export scripts. They sign in as you, so run `az login` first. It's git-ignored, and still holds the Slack and Anthropic tokens. | — |
 
 During the build step the app may start before its secrets exist, crash, and restart. That's expected. The settings step fixes it.
