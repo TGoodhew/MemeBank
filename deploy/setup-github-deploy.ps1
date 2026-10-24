@@ -18,7 +18,6 @@ param(
     [string]$AppName = "memebank-github-deploy"
 )
 $ErrorActionPreference = "Stop"
-Set-Location (Split-Path $PSScriptRoot -Parent)
 
 function Invoke-Az {
     $out = & az @args
@@ -26,7 +25,13 @@ function Invoke-Az {
     return $out
 }
 
-if (-not $Repo) { $Repo = (& gh repo view --json nameWithOwner --jq .nameWithOwner) }
+# The repo this script sits in (it needs no other files), or the current folder's, if -Repo isn't given.
+if (-not $Repo) {
+    foreach ($dir in @((Split-Path $PSScriptRoot -Parent), (Get-Location).Path)) {
+        Push-Location $dir; try { $Repo = (& gh repo view --json nameWithOwner --jq .nameWithOwner 2>$null) } finally { Pop-Location }
+        if ($Repo) { break }
+    }
+}
 if (-not $Repo) { throw "Couldn't tell which GitHub repo this is; pass -Repo owner/name" }
 $tenant = Invoke-Az account show --query tenantId -o tsv
 $subscription = Invoke-Az account show --query id -o tsv
