@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 DUPLICATE_DISTANCE = 6  # dHash bits; reposts and re-screenshots land well inside this
 # ...but so do different memes on the same template, so a near picture is only a repost if its text matches too
 TEXT_MATCH = 0.9
+MAX_EXTRA_TAGS = 100  # tags people can add to one meme ("tag #12 ...")
 
 HELP = """*The Meme Bank* :bank:
 *Deposit:* post an image with "meme for the meme bank" in the message, react to any image post with :bank:, or DM me an image. I'll keep a copy and tag it.
@@ -178,17 +179,19 @@ class MemeBank:
                 client.reactions_add(channel=channel, timestamp=ts, name="bank")
             except Exception:  # noqa: BLE001  (already_reacted etc.)
                 pass
-        if self.ack_mode != "thread":
+        hint_in_dm = in_dm and self.dm_tags
+        quiet = self.ack_mode != "thread"  # react only... except a DM deposit, whose thread is the tag hint's home
+        if quiet and not hint_in_dm:
             return
         lines = []
         for r in fresh:
-            if in_dm and self.dm_tags:
+            if hint_in_dm:
                 lines.append(f"Banked as *#{r.meme.number}: {r.meme.title}*. {self._tag_hint(r.meme)}")
             else:
                 lines.append(f"Banked as *#{r.meme.number}: {r.meme.title}*\n_{', '.join(r.meme.all_tags[:12])}_")
-        for r in dupes:
+        for r in [] if quiet else dupes:
             lines.append(f"Already in the vault as *#{r.meme.number}: {r.meme.title}*. The meme bank never forgets.")
-        for r in results:
+        for r in [] if quiet else results:
             if r.status == "withdrawn":
                 lines.append(f"*#{r.meme.number}: {r.meme.title}* was withdrawn from the vault. "
                              f"`hey meme bank, restore #{r.meme.number}` brings it back.")
@@ -244,27 +247,34 @@ class MemeBank:
                 self._say(client, channel, f"Only whoever deposited #{n} (or a bank manager) can withdraw it.", thread_ts)
         elif cmd.name == "tag":  # anyone can add tags
             words = clean_tags(cmd.query.split(","))
-            added = [t for t in words if t not in meme.all_tags]
+            new = [t for t in words if t not in meme.all_tags]
+            added = new[:max(0, MAX_EXTRA_TAGS - len(meme.extra_tags))]
+            full = f" ({len(new) - len(added)} skipped: #{n} has the most added tags it can hold)" if len(added) < len(new) else ""
             if not words:
                 self._say(client, channel, f"Give me some words to tag #{n} with, comma separated.", thread_ts)
             elif added:
-                meme.extra_tags = clean_tags(meme.extra_tags + added)
+                meme.extra_tags = meme.extra_tags + added  # already cleaned and new, so no re-clean (it would cap at 40)
                 self.store.put(meme, None)
-                self._say(client, channel, f"Tagged *#{n}: {meme.title}* with _{', '.join(added)}_\n"
+                self._say(client, channel, f"Tagged *#{n}: {meme.title}* with _{', '.join(added)}_{full}\n"
                                            f"All tags: _{', '.join(meme.all_tags)}_", thread_ts)
+            elif new:
+                self._say(client, channel, f"#{n} can't take more added tags{full}.", thread_ts)
             else:
                 self._say(client, channel, f"#{n} already has those tags.", thread_ts)
         elif cmd.name == "untag":
             words = clean_tags(cmd.query.split(","))
+            removed = [t for t in words if t in meme.all_tags]
             if not allowed:
                 self._say(client, channel, f"Only whoever deposited #{n} (or a bank manager) can remove its tags.", thread_ts)
-            elif not any(t in meme.all_tags for t in words):
-                self._say(client, channel, f"#{n} doesn't have {', '.join(words) or 'that tag'}.", thread_ts)
+            elif not words:
+                self._say(client, channel, f"Which tag should I remove from #{n}? e.g. `untag #{n} cabin trip`", thread_ts)
+            elif not removed:
+                self._say(client, channel, f"#{n} doesn't have {', '.join(words)}.", thread_ts)
             else:
-                meme.tags = [t for t in meme.tags if t not in words]  # a retag may bring Claude's back
-                meme.extra_tags = [t for t in meme.extra_tags if t not in words]
+                meme.tags = [t for t in meme.tags if t not in removed]  # a retag may bring Claude's back
+                meme.extra_tags = [t for t in meme.extra_tags if t not in removed]
                 self.store.put(meme, None)
-                self._say(client, channel, f"Removed _{', '.join(words)}_ from *#{n}: {meme.title}*\n"
+                self._say(client, channel, f"Removed _{', '.join(removed)}_ from *#{n}: {meme.title}*\n"
                                            f"All tags: _{', '.join(meme.all_tags)}_", thread_ts)
         else:
             self._retag(client, channel, meme, thread_ts)

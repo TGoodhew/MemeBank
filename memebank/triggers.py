@@ -80,13 +80,15 @@ def parse_command(rest: str) -> Command:
     m = re.fullmatch(r"(?:retag|re-tag|redo)\s+(?:meme\s+)?#?(\d+)", low)
     if m:
         return Command("retag", int(m.group(1)))
-    # "tag #12 ilhan omar, squad": the words keep their own text (comma separated) in query
-    m = re.fullmatch(r"(?:add\s+)?tags?\s+(?:to\s+)?(?:meme\s+)?#?(\d+)(?:\s+with)?\s*[:,-]?\s*(.+)", raw, re.I | re.S)
+    # "tag #12 ilhan omar, squad": the words keep their own text (comma separated) in query. (?!\d) stops
+    # "tag #12" (no words) being read as "tag #1 with 2".
+    m = re.fullmatch(r"(?:add\s+)?tags?\s+(?:to\s+)?(?:meme\s+)?#?(\d+)(?!\d)(?:\s+with\b)?(?:\s*[:,-]?\s*(.+))?",
+                     raw, re.I | re.S)
     if m:
-        return Command("tag", int(m.group(1)), query=m.group(2).strip())
-    m = re.fullmatch(r"(?:untag|remove\s+tags?)\s+(?:meme\s+)?#?(\d+)\s*[:,-]?\s*(.+)", raw, re.I | re.S)
+        return Command("tag", int(m.group(1)), query=(m.group(2) or "").strip())
+    m = re.fullmatch(r"(?:untag|remove\s+tags?)\s+(?:meme\s+)?#?(\d+)(?!\d)(?:\s*[:,-]?\s*(.+))?", raw, re.I | re.S)
     if m:
-        return Command("untag", int(m.group(1)), query=m.group(2).strip())
+        return Command("untag", int(m.group(1)), query=(m.group(2) or "").strip())
     m = re.fullmatch(r"(?:(?:show|get|post)\s+(?:me\s+)?)?(?:meme\s+)?(?:#|number\s+|no\.?\s*)(\d+)", low)
     if m:
         return Command("get", int(m.group(1)))

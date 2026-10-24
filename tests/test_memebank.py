@@ -146,6 +146,9 @@ def test_classify(text, has_img, dm, expect):
     ("add tags to #3: Cabin Trip", "tag", 3, "Cabin Trip"),
     ("tag meme 5 with kevin", "tag", 5, "kevin"),
     ("untag #12 squad", "untag", 12, "squad"),
+    ("tag #12", "tag", 12, ""),  # not "tag #1 with 2"
+    ("untag #12", "untag", 12, ""),
+    ("tag #12 without context", "tag", 12, "without context"),
     ("could you find me the France meme?", "search", None, "the France meme"),
     ("What memes relate to France", "search", None, "What memes relate to France"),
 ])
@@ -388,6 +391,37 @@ def test_anyone_can_add_tags_and_they_survive_a_retag(setup):
     assert "kept the tags people added: ilhan omar, squad" in say() and store.get(1).extra_tags == ["ilhan omar", "squad"]
     assert search("the ilhan omar one", store.all(), tagger=None)[0].number == 1  # keyword fallback sees them
     assert "ilhan omar" in store.get(1).catalogue_line()  # and so does Claude's pick
+
+
+def test_tag_with_no_words_asks_for_some_and_changes_nothing(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    before = (store.get(1).all_tags, store.get(2).all_tags)
+    bank.handle_ask(client, "CGEN", "UTONY", "tag #2")
+    assert "Give me some words to tag #2" in client.named("chat_postMessage")[-1]["text"]
+    bank.handle_ask(client, "CGEN", "UTONY", "untag #1")
+    assert "Which tag should I remove from #1" in client.named("chat_postMessage")[-1]["text"]
+    assert (store.get(1).all_tags, store.get(2).all_tags) == before
+
+
+def test_more_than_forty_added_tags_are_all_kept_up_to_the_limit(setup):
+    from memebank.core import MAX_EXTRA_TAGS
+
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    for start in range(0, MAX_EXTRA_TAGS, 25):
+        bank.handle_ask(client, "CGEN", "UZAK", "tag #1 " + ", ".join(f"word{i}" for i in range(start, start + 25)))
+    assert len(store.get(1).extra_tags) == MAX_EXTRA_TAGS and "word99" in store.get(1).all_tags
+    bank.handle_ask(client, "CGEN", "UZAK", "tag #1 one more")
+    assert "can't take more added tags (1 skipped" in client.named("chat_postMessage")[-1]["text"]
+
+
+def test_reaction_only_mode_still_gives_a_dm_deposit_its_tag_hint(setup):
+    bank, store, tagger, client = setup
+    bank.ack_mode = "reaction"
+    bank.deposit_message(client, "DTONY", slack_msg("100.1", "", "F1", user="UTONY"))
+    posts = client.named("chat_postMessage")
+    assert len(posts) == 1 and posts[0]["channel"] == "DTONY" and "Here are the tags I used" in posts[0]["text"]
 
 
 def test_only_poster_or_admin_can_untag(setup):
