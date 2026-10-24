@@ -22,8 +22,10 @@ jobs:
   deploy:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
-    # On the job, not the workflow, so a failed or skipped Tests run can't take a waiting deploy's place in the queue.
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_sha == github.sha)
+    # On the job, not the workflow, so a failed, skipped or stale Tests run can't take a waiting deploy's place in the
+    # queue. (For workflow_run, github.sha is main's tip, so a Tests re-run for an older commit stops here.)
     concurrency:
       group: deploy
       cancel-in-progress: false  # never cut a deploy off halfway; the next one waits
@@ -61,7 +63,10 @@ jobs:
           az config set extension.use_dynamic_install=yes_without_prompt --only-show-errors
           tag="$(git rev-parse --short HEAD)"
           echo "TAG=$tag" >> "$GITHUB_ENV"
-          az acr build --registry "${{ vars.ACR_NAME }}" --image "$APP:$tag" --file Dockerfile .
+          # one retry: pulling the base image from Docker Hub sometimes times out
+          az acr build --registry "${{ vars.ACR_NAME }}" --image "$APP:$tag" --file Dockerfile . ||
+            { echo "::warning::Image build failed; retrying once in 30s"; sleep 30;
+              az acr build --registry "${{ vars.ACR_NAME }}" --image "$APP:$tag" --file Dockerfile .; }
 
       - name: Roll the container app onto it
         if: steps.fresh.outputs.ok == 'true'
