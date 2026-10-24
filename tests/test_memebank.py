@@ -210,6 +210,13 @@ def test_same_text(a, b, same):
     assert same_text(a, b) is same
 
 
+def test_deposit_from_a_thread_reply_is_acknowledged_in_that_thread(setup):
+    bank, store, tagger, client = setup
+    bank.deposit_message(client, "CGEN", {**slack_msg("100.2", "a meme for the meme bank", "F1"), "thread_ts": "100.1"})
+    assert client.named("reactions_add")[0]["timestamp"] == "100.2"  # the reaction goes on the reply itself
+    assert client.named("chat_postMessage")[0]["thread_ts"] == "100.1"
+
+
 def test_different_pictures_get_sequential_numbers(setup):
     bank, store, *_ , client = setup
     for i, f in enumerate(["F1", "F2", "F3"]):

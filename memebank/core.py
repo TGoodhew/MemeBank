@@ -124,6 +124,7 @@ class MemeBank:
         if not refs:
             return []
         ts = message.get("ts", "")
+        thread = message.get("thread_ts") or ts  # replies go in the post's thread, or the thread it's already in
         caption = message.get("text", "")
         permalink = ""
         try:
@@ -143,12 +144,12 @@ class MemeBank:
             except Exception as e:  # noqa: BLE001
                 log.exception("Couldn't bank %s", ref.key)
                 if acknowledge:
-                    self._say(client, channel, f":warning: Couldn't bank that one: {e}", thread_ts=ts)
+                    self._say(client, channel, f":warning: Couldn't bank that one: {e}", thread_ts=thread)
         if acknowledge:
-            self._acknowledge(client, channel, ts, results)
+            self._acknowledge(client, channel, ts, results, thread)
         return results
 
-    def _acknowledge(self, client, channel: str, ts: str, results: list[Deposit]) -> None:
+    def _acknowledge(self, client, channel: str, ts: str, results: list[Deposit], thread: str = "") -> None:
         fresh = [r for r in results if r.status == "new"]
         dupes = [r for r in results if r.status == "duplicate"]
         if fresh or dupes:
@@ -164,7 +165,7 @@ class MemeBank:
         for r in dupes:
             lines.append(f"Already in the vault as *#{r.meme.number}: {r.meme.title}*. The meme bank never forgets.")
         if lines:
-            self._say(client, channel, "\n".join(lines), thread_ts=ts)
+            self._say(client, channel, "\n".join(lines), thread_ts=thread or ts)
 
     # ------------------------------------------------------------------ withdrawals
     def handle_ask(self, client, channel: str, user: str, rest: str, thread_ts: str | None = None) -> Command:
