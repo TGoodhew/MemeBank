@@ -104,12 +104,12 @@ def test_date_becomes_utc_midnight_posted_at():
 def test_importing_the_same_file_twice_banks_it_once(bank, tmp_path):
     f = tmp_path / "rescued.png"
     f.write_bytes(png(3))
-    first = list(import_local.import_files(bank, [str(f)], caption="for the meme bank", posted_by="U01D6UG5KFH",
+    first = list(import_local.import_files(bank, [str(f)], caption="for the meme bank", posted_by="U0123456789",
                                            posted_at="2026-07-27T00:00:00+00:00"))
     again = list(import_local.import_files(bank, [str(f)]))
     assert [d.status for _, d in first + again] == ["new", "already"]
     m = bank.store.get(1)
-    assert (m.posted_at, m.posted_by, m.caption) == ("2026-07-27T00:00:00+00:00", "U01D6UG5KFH", "for the meme bank")
+    assert (m.posted_at, m.posted_by, m.caption) == ("2026-07-27T00:00:00+00:00", "U0123456789", "for the meme bank")
     assert m.source_key.startswith("local:")
 
 

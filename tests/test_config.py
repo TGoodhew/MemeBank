@@ -17,11 +17,11 @@ def clean_env(monkeypatch):
 
 
 def test_lists_are_split_and_trimmed_and_words_lower_cased(clean_env, monkeypatch):
-    monkeypatch.setenv("MEME_CHANNEL_IDS", " C6UTZF23Z, CTWO ,,")
+    monkeypatch.setenv("MEME_CHANNEL_IDS", " C0123456789, CTWO ,,")
     monkeypatch.setenv("STORAGE_BACKEND", "Azure")
     monkeypatch.setenv("ACK_MODE", "Reaction")
     cfg = Config.from_env()
-    assert cfg.channel_ids == ["C6UTZF23Z", "CTWO"] and cfg.storage_backend == "azure" and cfg.ack_mode == "reaction"
+    assert cfg.channel_ids == ["C0123456789", "CTWO"] and cfg.storage_backend == "azure" and cfg.ack_mode == "reaction"
 
 
 def test_defaults(clean_env):
@@ -60,10 +60,10 @@ def test_an_account_name_means_signing_in_by_identity_not_by_key(clean_env, monk
     made = []
     monkeypatch.setattr("memebank.store.AzureStore", lambda *a, **kw: made.append((a, kw)) or "store")
     monkeypatch.setenv("STORAGE_BACKEND", "azure")
-    monkeypatch.setenv("AZURE_STORAGE_ACCOUNT", "memebankgn9hc64r")
+    monkeypatch.setenv("AZURE_STORAGE_ACCOUNT", "memebankexample1")
     monkeypatch.setenv("AZURE_STORAGE_CONNECTION_STRING", "UseDevelopmentStorage=true")  # the account wins
     assert make_store(Config.from_env()) == "store"
-    assert made == [((), {"table_name": "memes", "container": "memes", "account": "memebankgn9hc64r"})]
+    assert made == [((), {"table_name": "memes", "container": "memes", "account": "memebankexample1"})]
 
 
 def test_the_store_builds_its_clients_from_the_account_with_the_credential(monkeypatch):
@@ -90,7 +90,7 @@ def test_the_store_builds_its_clients_from_the_account_with_the_credential(monke
 
     monkeypatch.setattr(azure.data.tables, "TableServiceClient", Tables)
     monkeypatch.setattr(azure.storage.blob, "BlobServiceClient", Blobs)
-    store = AzureStore(account="memebankgn9hc64r", credential="cred")
-    assert seen == {"tables": ("https://memebankgn9hc64r.table.core.windows.net", "cred"),
-                    "blobs": ("https://memebankgn9hc64r.blob.core.windows.net", "cred")}
+    store = AzureStore(account="memebankexample1", credential="cred")
+    assert seen == {"tables": ("https://memebankexample1.table.core.windows.net", "cred"),
+                    "blobs": ("https://memebankexample1.blob.core.windows.net", "cred")}
     assert store.table == "memes"

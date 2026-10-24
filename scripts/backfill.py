@@ -1,6 +1,6 @@
 """Bank the meme-bank posts already in a channel.
 
-    python -m scripts.backfill --env-file .env.azure --channel C6UTZF23Z [--since 2026-07-01] [--dry-run] [--ack]
+    python -m scripts.backfill --env-file .env.azure --channel C0123456789 [--since 2026-07-01] [--dry-run] [--ack]
 
 Uses the same settings as the bot (.env, or the file given with --env-file). The bot must already be in the channel.
 Only messages Slack still shows can be read (90 days on the free plan).
@@ -58,7 +58,7 @@ def bank_all(bank, client, channel: str, posts: list[dict], ack: bool = False) -
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--channel", required=True, help="channel ID, e.g. C6UTZF23Z")
+    p.add_argument("--channel", required=True, help="channel ID, e.g. C0123456789")
     p.add_argument("--since", default="", help="YYYY-MM-DD; default: everything Slack still shows")
     p.add_argument("--dry-run", action="store_true", help="list what would be banked, change nothing")
     p.add_argument("--ack", action="store_true", help="react/reply on the old posts (off by default, to keep the channel quiet)")

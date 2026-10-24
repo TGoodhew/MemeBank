@@ -1,11 +1,11 @@
 # Deploying the Meme Bank to Azure: step by step
 
-This guide takes the project from a folder on your PC to a bot running in your Azure subscription and answering in #general. It takes 30–45 minutes the first time, and most of that is waiting on builds.
+This guide takes the project from a folder on your PC to a bot running in your Azure subscription and answering in your meme channel (#general in the examples). It takes 30–45 minutes the first time, and most of that is waiting on builds.
 
 **What you'll end up with**
 
 ```
-Slack (makercrew)  ◄── outbound websocket ──  Container App "memebank" (1 copy, 0.25 vCPU / 0.5 GiB)
+Slack workspace    ◄── outbound websocket ──  Container App "memebank" (1 copy, 0.25 vCPU / 0.5 GiB)
                                                  │      in Container Apps environment "memebank-env"
                                                  │      (+ Log Analytics workspace for its logs)
                                                  ├──►  Storage account "memebank…": Table "memes" + Blob container "memes"
@@ -19,7 +19,7 @@ GitHub Actions (this repo) tests every change and deploys what's merged to main.
 
 ## 1. One-time prerequisites on your PC
 
-Open **PowerShell** (Windows PowerShell 5.1 or PowerShell 7 both work) in `C:\Users\Tony\source\MemeBank`.
+Clone the repo, then open **PowerShell** (Windows PowerShell 5.1 or PowerShell 7 both work) in its folder.
 
 | Need | Check | Install if missing |
 |---|---|---|
@@ -46,16 +46,16 @@ pip install -r requirements.txt
 
 ## 2. Create the Slack app
 
-1. Go to <https://api.slack.com/apps>, choose **Create New App**, then **From a manifest**, and pick the **makercrew** workspace.
+1. Go to <https://api.slack.com/apps>, choose **Create New App**, then **From a manifest**, and pick your workspace.
 2. Choose YAML, paste the whole of `slack-manifest.yml`, then click **Next** and **Create**.
-3. In the left menu, open **Install App** and click **Install to makercrew**, then **Allow**.
-   - If Slack says the app needs approval, a workspace owner or admin approves it under *Manage apps*. Kevin may be the one to ask.
+3. In the left menu, open **Install App** and click **Install to** your workspace, then **Allow**.
+   - If Slack says the app needs approval, a workspace owner or admin approves it under *Manage apps*.
    - The free plan allows up to 10 apps or integrations in a workspace.
 4. Still on **Install App**, copy the **Bot User OAuth Token**. It starts with `xoxb-`.
 5. In the left menu, open **Basic Information**, scroll to **App-Level Tokens**, and click **Generate Token and Scopes**.
    - Name: `socket`. Add the scope `connections:write`, then click **Generate**.
    - Copy the token. It starts with `xapp-`.
-6. In Slack, go to #general and send `/invite @Meme Bank`.
+6. In Slack, go to your meme channel and send `/invite @Meme Bank`.
 
 If you change the scopes in the manifest later, Slack asks you to **reinstall** the app. The `xoxb-` token stays the same.
 
@@ -75,10 +75,10 @@ Copy-Item .env.example .env
 notepad .env
 ```
 
-Paste in the three secrets: `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` and `ANTHROPIC_API_KEY`. The rest is already set for makercrew:
+Paste in the three secrets: `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` and `ANTHROPIC_API_KEY`. Then set:
 
-- `MEME_CHANNEL_IDS=C6UTZF23Z` is #general.
-- `ADMIN_USER_IDS=U01D6UG5KFH` is you, the bank manager. Only bank managers can withdraw (`forget`) and `restore` memes. When anyone else asks to forget one, the bot DMs the bank managers, who decide.
+- `MEME_CHANNEL_IDS`: your meme channel's ID, such as `C0123456789`. In Slack, open the channel's name; the ID is at the bottom of the *About* tab. Comma-separate several, or leave it blank for any channel the bot is in.
+- `ADMIN_USER_IDS`: your Slack member ID, such as `U0123456789`. Open your profile, choose **⋮**, then **Copy member ID**. This makes you the bank manager. Only bank managers can withdraw (`forget`) and `restore` memes. When anyone else asks to forget one, the bot DMs the bank managers, who decide.
 - `ACK_MODE=thread` replies with the tags. Set it to `reaction` if you only want the :bank: reaction.
 
 `.env` holds secrets. It's listed in `.gitignore` and `.dockerignore`, so it never goes into Git or the container image.
@@ -94,7 +94,7 @@ This tests the Slack and Claude side before Azure is involved.
 python -m memebank
 ```
 
-You should see `Meme Bank open for business (local storage, 0 memes)`. Then, in #general:
+You should see `Meme Bank open for business (local storage, 0 memes)`. Then, in your meme channel:
 
 1. Post any image with "a meme for the meme bank". It should react :bank: and reply "Banked as #1 …" in a thread.
 2. Send `hey meme bank, stats`.
@@ -148,7 +148,7 @@ During the build step the app may start before its secrets exist, crash, and res
 az containerapp logs show -n memebank -g rg-memebank --follow
 ```
 
-Look for `Meme Bank open for business (azure storage, 0 memes)`. Press Ctrl+C to stop following the logs; the bot keeps running. Then send `hey meme bank, stats` in #general.
+Look for `Meme Bank open for business (azure storage, 0 memes)`. Press Ctrl+C to stop following the logs; the bot keeps running. Then send `hey meme bank, stats` in your meme channel.
 
 **Then let GitHub deploy code changes** (one time, signed in with `az login` and `gh auth login`):
 
@@ -156,18 +156,18 @@ Look for `Meme Bank open for business (azure storage, 0 memes)`. Press Ctrl+C to
 .\deploy\setup-github-deploy.ps1
 ```
 
-It creates an app registration that only this repo's `main` branch can sign in as (OIDC, so no Azure secret is stored in GitHub), gives it Contributor on `rg-memebank` only, and sets the repo variables the Deploy workflow reads. From then on, merging to `main` ships code (see §9).
+Do this in your own copy of the repo (a fork or a clone pushed to your account): the Deploy workflow deploys to whichever Azure subscription the repo's variables point at. It creates an app registration that only that repo's `main` branch can sign in as (OIDC, so no Azure secret is stored in GitHub), gives it Contributor on `rg-memebank` only, and sets the repo variables the Deploy workflow reads. From then on, merging to `main` ships code (see §9).
 
 ---
 
 ## 8. Bank the existing posts
 
-On the free plan the bot can only read the last 90 days of the channel. #general's history is already in the bank (#1–#15 are its posts from July to mid-October 2026, including the two Thomas Sowell memes), so this is only needed again for a new channel or a fresh bank. Re-running it is harmless: posts already banked are skipped.
+This banks the image posts already in the channel that say they're for the meme bank. On Slack's free plan the bot can only read the last 90 days, so do it soon after setup. Re-running it is harmless: posts already banked are skipped.
 
 ```powershell
 .venv\Scripts\Activate.ps1
-python -m scripts.backfill --env-file .env.azure --channel C6UTZF23Z --dry-run
-python -m scripts.backfill --env-file .env.azure --channel C6UTZF23Z
+python -m scripts.backfill --env-file .env.azure --channel C0123456789 --dry-run
+python -m scripts.backfill --env-file .env.azure --channel C0123456789
 ```
 
 The dry run lists what it found. The real run banks the posts oldest first, so the numbering follows posting order. It doesn't react or reply on the old posts. Add `--ack` if you want it to.
@@ -175,7 +175,7 @@ The dry run lists what it found. The real run banks the posts oldest first, so t
 To bank image files from your PC instead (for example, memes that have aged out of Slack's history), use the import script. Several files can be given at once:
 
 ```powershell
-python -m scripts.import_local --env-file .env.azure "$env:USERPROFILE\Downloads\image.png" --date 2026-07-27 --posted-by U01D6UG5KFH --caption "what was said when it was posted"
+python -m scripts.import_local --env-file .env.azure "$env:USERPROFILE\Downloads\image.png" --date 2026-07-27 --posted-by U0123456789 --caption "what was said when it was posted"
 ```
 
 A file that's already in the bank, or a resized copy of one, is recognised as a duplicate and skipped.
@@ -215,9 +215,9 @@ What runs continuously, and how it's billed:
 - **Storage:** a few MB of tables and images, so pennies.
 - **Claude:** roughly a cent or two per deposit or search at the default model. `TAG_MODEL` / `SEARCH_MODEL` set to `claude-haiku-5-5` is cheaper.
 
-My estimate is a few dollars to about $20 a month in total. Check the real figure after the first week.
+Expect a few dollars to about $20 a month in total. Check the real figure after the first week.
 
-**Set a budget alert:** in the portal, go to **Cost Management**, then **Budgets**, then **Add**. Scope it to `rg-memebank`, set a monthly amount (say $20), and add an alert to tony@schnauzergroup.com at 80%.
+**Set a budget alert:** in the portal, go to **Cost Management**, then **Budgets**, then **Add**. Scope it to `rg-memebank`, set a monthly amount (say $20), and add an alert to your email at 80%.
 
 ---
 

@@ -350,7 +350,7 @@ def test_tag_it_straight_into_the_dm_tags_the_last_meme_banked_there(app_and_ban
 
 def test_tag_it_after_a_dm_deposit_finds_the_banked_reply_in_the_images_thread(app_and_bank):
     app, bank, history = app_and_bank
-    history[None] = [  # newest first: Tony's DM'd image (its "Banked as #22" is a thread reply), then an older #21
+    history[None] = [  # newest first: the user's DM'd image (its "Banked as #22" is a thread reply), then an older #21
         {"ts": "30.0", "user": "UTONY", "text": "", "reply_count": 1, "files": IMG},
         {"ts": "21.0", "user": BOT, "text": "Banked *#21: Leftists when they get what they want*. Here are the tags…"},
     ]

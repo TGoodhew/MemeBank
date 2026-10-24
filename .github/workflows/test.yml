@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.12", "3.15"]  # 3.12 is what the Dockerfile runs; 3.15 is what Tony's PC runs
+        python: ["3.12", "3.15"]  # 3.12 is what the Dockerfile runs; 3.15 is the newest release
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
