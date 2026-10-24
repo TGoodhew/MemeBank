@@ -7,7 +7,7 @@ import re
 from slack_bolt import App
 
 from .core import CONFIRM_EVENT, MemeBank, images_in
-from .triggers import classify, parse_command
+from .triggers import NEGATION_RE, classify, parse_command
 
 log = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ def build_app(cfg, bank: MemeBank) -> App:
         """A reply in the thread of a "want me to bank it?" DM. True if it was one (and has been dealt with)."""
         channel, thread_ts, text = event["channel"], event["thread_ts"], event.get("text", "")
         plain = text.replace("’", "'").replace("‘", "'")
-        no = NO_RE.search(plain)
+        no = NO_RE.search(plain) or NEGATION_RE.search(plain)  # "okay, I wouldn't bank it" is a no too
         yes = not no and YES_RE.match(plain)
         if not (yes or no):
             return False
@@ -100,10 +100,18 @@ def build_app(cfg, bank: MemeBank) -> App:
         meta = root.get("metadata") or {}
         if meta.get("event_type") != CONFIRM_EVENT:
             return False
-        if no:
-            bank.say(client, channel, "OK, I've left it out of the vault.", thread_ts)
-            return True
         where = meta.get("event_payload") or {}
+        if no:  # but someone may have banked it since (a :bank: reaction), so don't claim it's left out if it isn't
+            post = fetch_message(client, where.get("channel", ""), where.get("ts", ""), where.get("thread_ts"))
+            refs = images_in(post, where["channel"]) if post else []
+            found = [m for m in (bank.store.find_by_source(r.key) for r in refs) if m and not m.withdrawn_at]
+            if found:
+                n = found[0].number
+                bank.say(client, channel, f"OK, I won't bank it. It's already in the vault as #{n}, though; only a bank "
+                                          f"manager can remove it (`hey meme bank, forget #{n}` asks one).", thread_ts)
+            else:
+                bank.say(client, channel, "OK, I've left it out of the vault.", thread_ts)
+            return True
         post = fetch_message(client, where.get("channel", ""), where.get("ts", ""), where.get("thread_ts"))
         if not post:
             bank.say(client, channel, "I couldn't find that post any more, so there's nothing to bank.", thread_ts)

@@ -11,7 +11,7 @@ BANK_RE = re.compile(r"\bmeme[\s-]?bank\b", re.I)
 _PUT = (r"(?:add|adding|added|put|putting|store|storing|stored|save|saving|saved|stick|file|filed|deposit|deposited"
         r"|bank|banked|throw|toss|send|goes|go|going)")
 DEPOSIT_RE = re.compile(
-    rf"\b{_PUT}\b(?:\s+\S+){{0,3}}?\s+(?:in|into|to|onto)\s+(?:the\s+|our\s+)?meme[\s-]?bank\b"
+    rf"\b{_PUT}\b(?:\s+[^\s.!?]+){{0,3}}?\s+(?:in|into|to|onto)\s+(?:the\s+|our\s+)?meme[\s-]?bank\b"
     r"|\bfor\s+(?:the\s+|our\s+)?meme[\s-]?bank\b"
     r"|\bmeme[\s-]?bank\s+(?:deposit|submission|entry)\b"
     r"|:bank:",
@@ -20,8 +20,8 @@ DEPOSIT_RE = re.compile(
 
 # Any negation at all (every n't contraction, "not", "never", "no"...), and sentences that ask rather than tell. The
 # rule is deliberately cautious: when in doubt it isn't a deposit, and the poster just gets asked.
-_NEGATION = re.compile(r"\b(?:\w+n't|not|never|no|nope|nobody|nothing|without|dont|doesnt|didnt|wont|wouldnt|shouldnt"
-                       r"|cant|isnt|arent|wasnt)\b", re.I)
+NEGATION_RE = re.compile(r"\b(?:\w+n't|not|never|no|nope|nobody|nothing|without|dont|doesnt|didnt|wont|wouldnt"
+                         r"|shouldnt|cant|isnt|arent|wasnt)\b", re.I)
 _QUESTION_START = re.compile(r"^\W*(?:did|does|do|has|have|had|is|was|were|are|am|should|shall|can|could|would|will"
                              r"|may|might|must|why|when|where|who|whom|what|which|how|wonder)\b", re.I)
 
@@ -35,14 +35,12 @@ def says_deposit(text: str) -> bool:
         return True  # the emoji is as explicit as the :bank: reaction, whatever the words around it say
     text = re.sub(r"<[^>]*>|https?://\S+", " ", text)  # links (<url|label>, <@user>) have dots that aren't full stops
     text = re.sub(r"\s+", " ", text)  # a line break isn't the end of a sentence ("This is not\nfor the meme bank")
-    for m in DEPOSIT_RE.finditer(text):
-        start = max(text.rfind(c, 0, m.start()) for c in ".!?") + 1
-        ends = [i for i in (text.find(c, m.end()) for c in ".!?") if i != -1]
-        end = min(ends) if ends else len(text)
-        sentence = text[start:end + 1]
+    for sentence in re.findall(r"[^.!?]+[.!?]*", text):  # each sentence on its own: "Don't add that. Store this ..."
+        if not DEPOSIT_RE.search(sentence):
+            continue
         if sentence.rstrip().endswith("?") or _QUESTION_START.search(sentence):
             continue  # asks about the meme bank
-        if _NEGATION.search(sentence):
+        if NEGATION_RE.search(sentence):
             continue  # negated somewhere in the same sentence
         return True
     return False

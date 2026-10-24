@@ -1,5 +1,6 @@
 """Feeds Slack-shaped events through the real Bolt app, with the Slack Web API faked out."""
 import time
+from types import SimpleNamespace
 
 import pytest
 from slack_bolt.request import BoltRequest
@@ -14,6 +15,8 @@ BOT = "UBOT123"
 class SpyBank:
     def __init__(self):
         self.deposits, self.asks, self.banked_by, self.confirms, self.said = [], [], [], [], []
+        self.banked = {}  # source key -> meme, for "is it already in the vault?"
+        self.store = SimpleNamespace(find_by_source=self.banked.get)
 
     def ask_to_bank(self, client, channel, message):
         self.confirms.append((channel, message.get("ts")))
@@ -159,7 +162,8 @@ def test_yes_in_the_confirm_dm_banks_the_original_post_and_no_leaves_it(app_and_
 
 
 @pytest.mark.parametrize("answer", ["please don't", "please leave it out", "do not", "no thanks", "okay, don't bank it",
-                                    "sure, but do not store it", "please don’t"])
+                                    "sure, but do not store it", "please don’t", "okay, I wouldn't bank it",
+                                    "sure, I shouldn't share it"])
 def test_polite_refusals_are_refusals(app_and_bank, answer):
     from memebank.core import CONFIRM_EVENT
 
@@ -172,6 +176,20 @@ def test_polite_refusals_are_refusals(app_and_bank, answer):
     wait_for(lambda: bank.said)
     time.sleep(0.1)
     assert bank.said == [("DTONY", "OK, I've left it out of the vault.", "40.0")] and bank.deposits == []
+
+
+def test_no_after_someone_else_banked_it_doesnt_pretend_it_was_left_out(app_and_bank):
+    from memebank.core import CONFIRM_EVENT
+
+    app, bank, history = app_and_bank
+    bank.banked["slack:F1"] = SimpleNamespace(number=23, withdrawn_at="")  # a :bank: reaction got there first
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "meme bank", "files": IMG}]
+    history["90.0"] = [{"ts": "90.0", "user": BOT, "text": "Want me to bank it?",
+                        "metadata": {"event_type": CONFIRM_EVENT, "event_payload": {"channel": "CGEN", "ts": "10.0"}}}]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "91.0",
+               "thread_ts": "90.0", "text": "no"})
+    wait_for(lambda: bank.said)
+    assert "already in the vault as #23" in bank.said[0][1] and "left it out" not in bank.said[0][1]
 
 
 def test_confirm_metadata_only_counts_on_a_question_the_bot_asked(app_and_bank):

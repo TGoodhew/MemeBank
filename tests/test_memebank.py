@@ -138,6 +138,8 @@ def setup(tmp_path):
     ("A meme for the meme bank, but don't bank it yet.", True, False, ("confirm", "")),  # negation after the phrase
     ("This is not\nfor the meme bank", True, False, ("confirm", "")),  # a line break doesn't end the sentence
     ("No caption needed :bank:", True, False, ("bank", "")),  # the emoji banks, whatever the words say
+    ("Don't add that. Store this in the meme bank.", True, False, ("bank", "")),  # each sentence on its own
+    ("Store this in the meme bank. Don't laugh.", True, False, ("bank", "")),
     ("A meme for the meme bank <@U6UTZEXAB|kevin>", False, False, None),  # link not unfurled yet: not a question
     ("This is why the meme bank is important", False, False, None),
     ("just a cat picture", True, False, None),
