@@ -214,6 +214,8 @@ My estimate is a few dollars to about $20 a month in total. Check the real figur
 | Some memes missing from the bank | A second copy, such as the local test, was running at the same time. Stop it. |
 | Deploy fails on provider registration | Registration can take a few minutes the first time. Wait and re-run. |
 | Deploy fails: storage name taken | Pass `-StorageAccount memebank<something unique>`. |
+| Deploy fails with `AADSTS50076` … "you must use multi-factor authentication" | Azure requires MFA to create or change resources, while reads still work without it. With a personal Microsoft account, turn on two-step verification at account.microsoft.com/security. Then make the CLI sign in through the browser instead of Windows' silent sign-in: `az config set core.enable_broker_on_windows=false`, `az account clear`, `az login --tenant <tenant id>`. The browser sign-in has to ask for your second factor. |
+| `UnicodeEncodeError: 'charmap' codec can't encode…` from `az` | The CLI on Windows can't print some characters when its output is piped or redirected, for example the ⚡ in the bot's startup log. Run the command directly in a terminal, or use *Log stream* in the portal. The Dockerfile turns off pip's progress bar so the cloud-build log stays plain ASCII for the same reason. |
 | Replica keeps restarting | Run `az containerapp logs show -n memebank -g rg-memebank --type system`. Usually a missing setting. |
 
 ---
