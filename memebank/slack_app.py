@@ -82,13 +82,18 @@ def build_app(cfg, bank: MemeBank) -> App:
         return found[-1] if found else None
 
     def latest_banked_in_dm(client, channel: str) -> int | None:
+        """The newest "Banked #N" the bot posted in this DM: top-level (after a channel deposit) or in the thread of
+        an image sent straight to the bot (a DM deposit), which the DM's history alone doesn't include."""
         try:
             msgs = client.conversations_history(channel=channel, limit=20).get("messages", [])
+            threads = [m for m in msgs if m.get("reply_count") and not m.get("bot_id")][:5]
+            for t in threads:
+                msgs += client.conversations_replies(channel=channel, ts=t["ts"], limit=20).get("messages", [])
         except Exception:  # noqa: BLE001
             log.exception("Couldn't read the DM")
             return None
-        found = banked_numbers(msgs)  # newest first
-        return found[0] if found else None
+        banked = [(float(msg["ts"]), n) for msg in msgs for n in banked_numbers([msg])]
+        return max(banked)[1] if banked else None
 
     @app.event("reaction_added")
     def on_reaction(event, client):

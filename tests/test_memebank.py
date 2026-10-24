@@ -402,6 +402,8 @@ def test_anyone_can_add_tags_and_they_survive_a_retag(setup):
     ('cabin, "rock and roll", kevin & zak', ["cabin", "rock and roll", "kevin", "zak"]),
     ("“curly quotes” and plain", ["curly quotes", "plain"]),
     ("brandon; candy", ["brandon", "candy"]),
+    ("kevin &amp; zak", ["kevin", "zak"]),  # Slack sends a typed & as &amp;
+    ('"mac &amp; cheese", &lt;3', ["mac & cheese", "<3"]),
     ("", []),
 ])
 def test_split_tags(text, tags):

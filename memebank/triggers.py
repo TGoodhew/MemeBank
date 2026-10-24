@@ -61,7 +61,8 @@ _QUOTED = re.compile(r'"([^"]+)"|“([^”]+)”')
 def split_tags(text: str) -> list[str]:
     """'"Trump screamer" and "Beanie Girl"' -> ['Trump screamer', 'Beanie Girl']. Quoted phrases stay whole
     (so "rock and roll" can be one tag); the rest splits on commas, semicolons, & and the word "and"."""
-    pieces = _QUOTED.split(text or "")  # [outside, quote, quote, outside, quote, quote, outside, ...]
+    text = (text or "").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")  # Slack escapes these three
+    pieces = _QUOTED.split(text)  # [outside, quote, quote, outside, quote, quote, outside, ...]
     out: list[str] = []
     for i in range(0, len(pieces), 3):
         out += [w.strip(" '\"“”") for w in re.split(r"[,;&]|\band\b", pieces[i], flags=re.I)]

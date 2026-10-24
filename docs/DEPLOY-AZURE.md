@@ -184,7 +184,7 @@ The bot picks up memes added by these scripts within a minute.
 
   | Alert | Fires when |
   |---|---|
-  | `memebank-restarts` | The container restarts more than 3 times in an hour (a crash loop) |
+  | `memebank-crashloop` | One revision's container is terminated 3 or more times in an hour (a crash loop: a bad token or a missing setting). This also fires once for the very first deploy, whose app starts before its secrets exist |
   | `memebank-errors` | The bot logs an `ERROR` or a traceback (a deposit, search, upload or Claude call failed) |
   | `memebank-quiet` | No `Heartbeat: connected=True` line for 2 hours (the bot is hung, stopped or disconnected from Slack). It logs one about a minute after starting and then hourly |
 
@@ -230,7 +230,7 @@ My estimate is a few dollars to about $20 a month in total. Check the real figur
 | `UnicodeEncodeError: 'charmap' codec can't encode…` from `az` | The CLI on Windows can't print some characters when its output is piped or redirected, for example the ⚡ in the bot's startup log. Run the command directly in a terminal, or use *Log stream* in the portal. The Dockerfile turns off pip's progress bar so the cloud-build log stays plain ASCII for the same reason. |
 | Replica keeps restarting | Run `az containerapp logs show -n memebank -g rg-memebank --type system`. Usually a missing setting. |
 | "Gone quiet" alert, or the bot doesn't answer | Check *Revisions and replicas* first: is a replica running? Then look in *Log stream* for the last `Heartbeat:` line. `connected=False` means the Slack connection dropped: check the `xapp-` token and Slack's status page. No heartbeat at all means the process is stuck or stopped: restart the revision (§9). |
-| "Errors" alert | In Log Analytics run `ContainerAppConsoleLogs_CL \| where Log_s has ' ERROR ' or Log_s has 'Traceback' \| order by TimeGenerated desc` to see what failed. Claude 401/403 is the key, Slack `invalid_auth` is the bot token, and 429/overloaded is temporary. |
+| "Errors" alert | In Log Analytics run `ContainerAppConsoleLogs_CL \| where Log_s matches regex @'^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d+ (ERROR\|CRITICAL) ' or Log_s startswith 'Traceback (most recent call last)' \| order by TimeGenerated desc` to see what failed (then look at the lines just after a traceback). Claude 401/403 is the key, Slack `invalid_auth` is the bot token, and 429/overloaded is temporary. |
 
 ---
 
