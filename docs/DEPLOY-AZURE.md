@@ -175,7 +175,8 @@ The bot picks up memes added by these scripts within a minute.
 
 ## 9. Day-to-day
 
-- **Ship a code change:** edit the code, then re-run `.\deploy\deploy.ps1`. It rebuilds and redeploys into the same resources.
+- **Ship a code change:** merge it to `main`. Once the **Tests** workflow passes, the **Deploy** workflow (`.github/workflows/deploy.yml`) builds the image in the registry and moves the container app onto it. Watch it under the repo's *Actions* tab, or run it by hand with `gh workflow run deploy.yml`. It signs in to Azure by OIDC, as an app registration with Contributor on `rg-memebank` only, and no Azure secret is stored in GitHub. Set this up once with `.\deploy\setup-github-deploy.ps1` (signed in with `az login` and `gh auth login`).
+- **Change settings or secrets:** still `.\deploy\deploy.ps1`. The Deploy workflow only changes the image. Re-running `deploy.ps1` is also the fallback when Actions isn't set up.
 - **Change a setting** (channels, ACK_MODE, models): edit `.env`, then re-run the script.
 - **Rotate a key:** put the new value in `.env` and re-run the script.
 - **Restart:** `az containerapp revision restart -n memebank -g rg-memebank --revision (az containerapp revision list -n memebank -g rg-memebank --query "[0].name" -o tsv)`

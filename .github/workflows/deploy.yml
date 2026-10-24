@@ -1,0 +1,63 @@
+name: Deploy
+
+# After the Tests workflow passes on a push to main, build the image and roll the container app onto it.
+# Signs in to Azure by OIDC (a federated credential only main of this repo can use; deploy/setup-github-deploy.ps1
+# creates it), so no Azure secret is stored in GitHub. Settings and secrets stay with deploy/deploy.ps1.
+on:
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write  # for the OIDC sign-in
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false  # never cut a deploy off halfway; the next one waits
+
+env:
+  APP: memebank
+  RESOURCE_GROUP: rg-memebank
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}  # exactly the commit the tests passed on
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build the image in the registry
+        run: |
+          az config set extension.use_dynamic_install=yes_without_prompt --only-show-errors
+          tag="$(git rev-parse --short HEAD)"
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+          az acr build --registry "${{ vars.ACR_NAME }}" --image "$APP:$tag" --file Dockerfile .
+
+      - name: Roll the container app onto it
+        run: |
+          az containerapp update --name "$APP" --resource-group "$RESOURCE_GROUP" \
+            --image "${{ vars.ACR_NAME }}.azurecr.io/$APP:$TAG" --only-show-errors -o none
+
+      - name: Wait for the new revision to run
+        run: |
+          for _ in $(seq 30); do
+            state=$(az containerapp revision list --name "$APP" --resource-group "$RESOURCE_GROUP" \
+              --query "[?properties.active && properties.template.containers[0].image=='${{ vars.ACR_NAME }}.azurecr.io/$APP:$TAG'].properties.runningState | [0]" -o tsv)
+            echo "revision state: ${state:-pending}"
+            case "$state" in Running*) exit 0 ;; Failed|Degraded) exit 1 ;; esac
+            sleep 10
+          done
+          echo "The new revision didn't reach Running within 5 minutes" && exit 1
