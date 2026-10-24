@@ -34,7 +34,7 @@ class Config:
     channel_ids: list[str] = field(default_factory=list)
     # Reacting with one of these emoji to an image post banks it, whatever the text says.
     bank_reactions: list[str] = field(default_factory=lambda: ["bank"])
-    # Users allowed to "forget" any meme (everyone can forget memes they posted).
+    # Bank managers: the only ones who can "forget" and "restore" memes (anyone else's forget asks them by DM).
     admin_user_ids: list[str] = field(default_factory=list)
     # "thread" = react + short thread reply with the tags; "reaction" = react only.
     ack_mode: str = "thread"

@@ -31,7 +31,7 @@ HELP = """*The Meme Bank* :bank:
 • `hey meme bank, find me the France meme`
 • `hey meme bank, what have you got on socialism?`
 • `hey meme bank, #12`  ·  `random`  ·  `stats`
-• `hey meme bank, tag #12 names, in-jokes` (anyone; `untag #12 word` for the poster)  ·  `retag #12` (Claude again)
+• `hey meme bank, tag #12 names, in-jokes` (anyone; `untag #12 word` for the poster or a bank manager)  ·  `retag #12` (Claude again)
 • `hey meme bank, forget #12` (asks a bank manager to remove it; they decide, and `restore #12` undoes it)
 You can also @mention me, or DM me a question without the "hey meme bank"."""
 
@@ -166,7 +166,8 @@ class MemeBank:
 
     def ask_to_bank(self, client, channel: str, message: dict) -> bool:
         """An image that only *mentions* the meme bank: DM the poster to check instead of banking it. The DM carries
-        the post's channel and ts as message metadata, so a "yes" in its thread knows what to bank."""
+        the post's channel and ts as message metadata, so a yes or no (in its thread, or sent straight into the DM)
+        knows which post it's about."""
         user, ts = message.get("user", ""), message.get("ts", "")
         if not user.startswith(("U", "W")):
             return False

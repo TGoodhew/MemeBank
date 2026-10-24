@@ -18,7 +18,8 @@ Because the bank keeps its own copy of every image, a meme survives after Slack'
 | an image saying it's for the bank: "a meme for the meme bank", "store this in the meme bank", "add it to the meme bank", or :bank: in the text | banks it, reacts :bank:, and replies in a thread with its number and tags. It also DMs whoever banked it the full tag list: reply `tag it …` there (or just the words, in that DM's thread) to add more |
 | a link whose preview has a picture (e.g. an x.com post), saying it's for the meme bank | banks the preview picture once Slack unfurls the link |
 | a :bank: reaction on any image post | banks that post |
-| an image that only *mentions* the meme bank ("this is why the meme bank is important") | doesn't bank it: DMs the poster "Want me to bank it?". Reply `yes` in that DM's thread (or react :bank: on the post) to bank it, `no` to leave it |
+| an image sent to the bot in a DM, or posted with an @mention of it | banks it |
+| an image that only *mentions* the meme bank ("this is why the meme bank is important"), or asks about it ("did this go in the meme bank?") | doesn't bank it: DMs the poster "Want me to bank it?". Reply `yes` or `no` in that DM (or react :bank: on the post) |
 | a meme that's already in the bank | replies "Already in the vault as #7" and doesn't bank it twice (it catches re-screenshots and resized copies too, while a different meme on the same template, with different text, is banked as new) |
 | `hey meme bank, find me the France meme` | searches by meaning, so a Macron or Eiffel Tower meme still counts as "France" |
 | `hey meme bank, #12` | posts meme 12 |
@@ -31,7 +32,7 @@ Because the bank keeps its own copy of every image, a meme survives after Slack'
 | `hey meme bank, retag #12` | has Claude tag it again. Tags people added are kept |
 | `hey meme bank` or `hey meme bank, help` | shows the help |
 
-It also responds to "yo/hi/ok meme bank …", "Meme bank: …", an @mention, or a DM, where everything you type is treated as a question. Plain chat that happens to mention the meme bank, like "this is why the meme bank is important", gets ignored. If it has an image, the poster gets a DM asking whether to bank it, and nothing is banked unless they say yes. Every meme the bank posts ends with its number and how to tag it or ask for its removal.
+It also responds to "yo/hi/ok meme bank …", "Meme bank: …", an @mention, or a DM, where everything you type without an image is treated as a question. Plain chat that happens to mention the meme bank, like "this is why the meme bank is important", gets ignored. If it has an image, the poster gets a DM asking whether to bank it, and nothing is banked unless they say yes. Every meme the bank posts ends with its number and how to tag it or ask for its removal.
 
 ## How it works
 
@@ -73,27 +74,34 @@ Post a test meme. Press Ctrl+C to stop the bot before you deploy, so only one co
 az login
 .\deploy\deploy.ps1          # optional: -Location westus3 -ResourceGroup rg-memebank
 ```
-The script creates the resource group, the storage account, and the container app, which it builds in the cloud from the Dockerfile. It stores the tokens as Container App secrets and pins the app to exactly one running copy. It also writes `.env.azure` for the next two steps. Re-run the script any time to ship code changes.
+The script creates the resource group, the storage account, and the container app, which it builds in the cloud from the Dockerfile. It stores the tokens as Container App secrets and pins the app to exactly one running copy. It also writes `.env.azure` for the scripts below. Re-run it to change settings or secrets.
 
-**6. Bank what's already in #general**
+**6. Let GitHub deploy code changes**
+```powershell
+gh auth login
+.\deploy\setup-github-deploy.ps1
+```
+After this one-time setup, every merge to `main` that passes the tests deploys itself (Actions → Deploy).
+
+**7. Bank what's already in the channel**
 ```powershell
 python -m scripts.backfill --env-file .env.azure --channel C6UTZF23Z --dry-run   # list what it found
 python -m scripts.backfill --env-file .env.azure --channel C6UTZF23Z             # bank them, without posting in the channel
 ```
-The backfill can only see posts Slack still shows, which on the free plan means the last 90 days. The 27 July post ages out on 25 October, so run the backfill soon.
+The backfill can only see posts Slack still shows, which on the free plan means the last 90 days. #general's history is already in the bank, so this is only needed for a new channel or a fresh bank. Running it again is harmless: posts already banked are skipped.
 
-**7. Import the two rescued memes.** The 27 July and 1 August Thomas Sowell memes were downloaded to your Downloads folder as the two newest `image*.png` files. Import them:
+To bank image files from your PC (for example, memes that have aged out of Slack), use `scripts.import_local`:
 ```powershell
-python -m scripts.import_local --env-file .env.azure "$env:USERPROFILE\Downloads\image.png" --date 2026-07-27 --posted-by U01D6UG5KFH --caption "This meme needs to be added again to the meme bank"
-python -m scripts.import_local --env-file .env.azure "$env:USERPROFILE\Downloads\image (1).png" --date 2026-08-01 --posted-by U01D6UG5KFH --caption "A Sowell meme for the meme bank that is 100% confirmed by my Visual Studio career"
+python -m scripts.import_local --env-file .env.azure "$env:USERPROFILE\Downloads\image.png" --date 2026-07-27 --posted-by U01D6UG5KFH --caption "what was said when it was posted"
 ```
-Adjust the file names to match what's actually in Downloads. If the backfill already caught a post, its import is recognised as a duplicate and skipped, so running both is harmless.
+A file that's already in the bank is recognised as a duplicate and skipped.
 
 ## Running it
 
+- **Ship a code change:** merge it to `main`. The Tests workflow runs, then the Deploy workflow builds the image and moves the bot onto it. Watch it under the repo's *Actions* tab.
 - **Logs:** `az containerapp logs show -n memebank -g rg-memebank --follow`
 - **Alerts:** set `ALERT_EMAIL` in `.env` and the deploy adds email alerts for a crash loop, logged errors, and the bot going quiet (no connected heartbeat for 2 hours). See [docs/DEPLOY-AZURE.md](docs/DEPLOY-AZURE.md#9-day-to-day).
-- **Settings:** edit `.env` and re-run `deploy.ps1`. `ACK_MODE=reaction` makes it react with :bank: without replying in a thread. `DM_TAGS=off` stops the tag DM after each deposit. `MEME_CHANNEL_IDS` takes a comma-separated list if you want more channels.
+- **Settings:** edit `.env` and re-run `deploy.ps1` from an up-to-date `main` (it rebuilds the image from your folder too). `ACK_MODE=reaction` makes it react with :bank: without replying in a thread. `DM_TAGS=off` stops the tag DM after each deposit. `MEME_CHANNEL_IDS` takes a comma-separated list if you want more channels.
 - **Models:** `TAG_MODEL` and `SEARCH_MODEL` default to `claude-sonnet-5-5`. Set either to `claude-haiku-5-5` for cheaper tagging or searching.
 - **Cost:** a container app with one small replica running all the time, a storage account holding a few MB, and possibly a Basic container registry created by the cloud build. Expect a few dollars to roughly $20 a month on the Azure side, so check Cost Management after the first week. Claude usage at a channel's meme rate is small: roughly a cent or two per deposit or search.
 - **Back up:** `python -m scripts.export --env-file .env.azure` copies the catalogue and every image to `.\memebank-backup`. The scripts reach storage as you, with no key, so be signed in with `az login`.
@@ -103,15 +111,18 @@ Adjust the file names to match what's actually in Downloads. If the backfill alr
 
 ```
 memebank/
-  triggers.py   decides deposit vs question, parses commands
-  core.py       deposits (download, dedupe, tag, store, acknowledge) and answers
+  __main__.py   python -m memebank: settings, storage, Socket Mode, hourly heartbeat log line
+  config.py     settings from environment variables / .env
+  triggers.py   decides deposit vs ask-first vs question, parses commands
+  core.py       deposits (download, dedupe, tag, store, acknowledge), "want me to bank it?" DMs, and answers
   tagger.py     Claude prompts: image -> title/description/text/tags; question -> best matches
   search.py     Claude pick with keyword fallback
   store.py      AzureStore (Table + Blob) and LocalStore (SQLite + folder)
   images.py     download, resize for Claude, perceptual hash for reposts
-  slack_app.py  Bolt event wiring (messages, link-preview edits, :bank: reactions)
+  slack_app.py  Bolt event wiring (messages, link-preview edits, :bank: reactions, yes/no answers, DM tagging)
 scripts/        backfill.py, import_local.py, export.py (backup to a folder)
 tests/          pytest; test_azure_store.py runs against Azurite with AZURITE=1
-deploy/         deploy.ps1
+deploy/         deploy.ps1 (Azure resources, settings, secrets), setup-github-deploy.ps1 (one-time Actions sign-in)
+.github/        workflows: test.yml (every push to main and pull request), deploy.yml (after tests pass on main)
 ```
-Run the tests with `pip install pytest` and then `pytest`. The two `AzureStore` tests are skipped unless the Azurite storage emulator is running: start it with `npx azurite --inMemoryPersistence --skipApiVersionCheck --loose` and run `$env:AZURITE=1; pytest tests/test_azure_store.py`. GitHub Actions runs both on every push and pull request.
+Run the tests with `pip install pytest` and then `pytest`. The `AzureStore` tests are skipped unless the Azurite storage emulator is running: start it with `npx azurite --inMemoryPersistence --skipApiVersionCheck --loose` and, in another terminal, run `$env:AZURITE=1; pytest tests/test_azure_store.py`. GitHub Actions runs both on every push to `main` and every pull request.

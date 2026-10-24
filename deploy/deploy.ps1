@@ -5,8 +5,11 @@
 .DESCRIPTION
   Creates, if missing: a resource group, a storage account (Table + Blob for the memes, with 30-day soft delete
   and a delete lock), a Container Apps environment and the app itself, built in the cloud from this folder's
-  Dockerfile. Secrets come from .env
-  and are stored as Container App secrets. Re-run it any time to ship code changes.
+  Dockerfile. Secrets come from .env and are stored as Container App secrets.
+
+  Re-run it to change settings or secrets. Code changes normally deploy from GitHub Actions once merged to main
+  (set up once with setup-github-deploy.ps1). This script also rebuilds the image from this folder, so run it from
+  an up-to-date main checkout, or it replaces what Actions deployed with whatever code is here.
 
   Storage is reached by identity, not an account key: the app's managed identity, and you (your az login) for
   the scripts. The script grants both the Table and Blob data roles and then turns account-key access off.
@@ -229,4 +232,5 @@ Write-Host "Done. The Meme Bank is starting up in Azure."
 Write-Host "  Watch the logs:   az containerapp logs show -n $AppName -g $ResourceGroup --follow"
 Write-Host "  Backfill (dry):   python -m scripts.backfill --env-file .env.azure --channel C6UTZF23Z --dry-run"
 Write-Host "  Back up memes:    python -m scripts.export --env-file .env.azure"
+Write-Host "  GitHub deploys:   .\deploy\setup-github-deploy.ps1 (once), then merging to main ships code changes"
 Write-Host "  Remove it all:    export first, then remove the lock (docs/DEPLOY-AZURE.md, section 12) and run az group delete -n $ResourceGroup"
