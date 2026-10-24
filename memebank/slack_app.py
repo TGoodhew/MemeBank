@@ -62,6 +62,9 @@ def build_app(cfg, bank: MemeBank) -> App:
         try:
             resp = client.conversations_history(channel=channel, latest=ts, oldest=ts, inclusive=True, limit=1)
             msgs = [m for m in resp.get("messages", []) if m.get("ts") == ts]
+            if not msgs:  # history only has top-level posts; a reply in a thread has to be looked up as one
+                resp = client.conversations_replies(channel=channel, ts=ts, latest=ts, oldest=ts, inclusive=True, limit=10)
+                msgs = [m for m in resp.get("messages", []) if m.get("ts") == ts]
         except Exception:  # noqa: BLE001
             log.exception("Couldn't load the reacted-to message")
             return
