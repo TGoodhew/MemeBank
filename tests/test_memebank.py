@@ -204,6 +204,11 @@ def test_classify(text, has_img, dm, expect):
     ("the meme about how to use chopsticks", "search", None, "the meme about how to use chopsticks"),
     ("how does socialism work", "search", None, "how does socialism work"),
     ("what do you have on socialism", "search", None, "what do you have on socialism"),
+    ("help with the economy", "search", None, "help with the economy"),
+    ("instructions for the microwave", "search", None, "instructions for the microwave"),
+    ("how do people work", "search", None, "how do people work"),
+    ("how do I work", "search", None, "how do I work"),
+    ("help for the channel", "help", None, ""),
     ("tell us about yourself", "help", None, ""),
     ("so what can you do for us?", "help", None, ""),
 ])

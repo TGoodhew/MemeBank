@@ -122,13 +122,14 @@ _FILLER = re.compile(
 # you", "what can you do". "help" alone counts, but "help me find the France meme" is a search.
 _ME = r"(?:you|yourself|the\s+(?:meme[\s-]?bank|bot))"
 _SELF = r"(?:you|this|it|the\s+(?:meme[\s-]?bank|bot))"  # "how ___ works"
-_PEOPLE = r"(?:me|us|everyone|everybody|people|all|the\s+\w+)"
+_PEOPLE = r"(?:me|us|everyone|everybody|people|all|the\s+(?:channel|group|team|gang))"
 _HELP_RE = re.compile(
     r"(?:(?:so|ok|okay|and|then|well)[\s,]+)?(?:(?:can|could|would|will)\s+you\s+)?(?:please\s+)?(?:"
     r"help|commands|usage|instructions|menu"
     rf"|(?:explain|describe|introduce|tell\s+{_PEOPLE})(?:\s+(?:to\s+)?{_PEOPLE})?\s+"
     rf"(?:how\s+{_SELF}\s+works?|how\s+to\s+use\s+{_SELF}|(?:about\s+)?{_ME}|what\s+you\s+do)"
-    rf"|how\s+(?:do|does|can|should)\s+(?:i|we|you|people|everyone|{_SELF})\s+(?:work|use\s+{_SELF})"
+    rf"|how\s+(?:do|does|can|should)\s+{_SELF}\s+work"
+    rf"|how\s+(?:do|does|can|should)\s+(?:i|we|you|people|everyone)\s+use\s+{_SELF}"
     rf"|how\s+{_SELF}\s+works?|how\s+to\s+use\s+{_SELF}"
     r"|what\s+(?:can|do|does)\s+(?:you|it|the\s+meme[\s-]?bank)\s+do"
     r"|what\s+(?:are\s+)?(?:your|the)\s+commands|(?:who|what)\s+are\s+you"
