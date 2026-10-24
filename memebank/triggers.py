@@ -31,10 +31,13 @@ def says_deposit(text: str) -> bool:
     this to the meme bank", "A meme for the meme bank, but don't bank it yet" and "Did I add this to the meme bank"
     (with or without the ?) aren't deposits: they go to the ask-first path."""
     text = (text or "").replace("’", "'").replace("‘", "'")  # phones type curly apostrophes
+    if ":bank:" in text:
+        return True  # the emoji is as explicit as the :bank: reaction, whatever the words around it say
     text = re.sub(r"<[^>]*>|https?://\S+", " ", text)  # links (<url|label>, <@user>) have dots that aren't full stops
+    text = re.sub(r"\s+", " ", text)  # a line break isn't the end of a sentence ("This is not\nfor the meme bank")
     for m in DEPOSIT_RE.finditer(text):
-        start = max(text.rfind(c, 0, m.start()) for c in ".!?\n") + 1
-        ends = [i for i in (text.find(c, m.end()) for c in ".!?\n") if i != -1]
+        start = max(text.rfind(c, 0, m.start()) for c in ".!?") + 1
+        ends = [i for i in (text.find(c, m.end()) for c in ".!?") if i != -1]
         end = min(ends) if ends else len(text)
         sentence = text[start:end + 1]
         if sentence.rstrip().endswith("?") or _QUESTION_START.search(sentence):
