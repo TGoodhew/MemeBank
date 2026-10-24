@@ -95,7 +95,7 @@ Adjust the file names to match what's actually in Downloads. If the backfill alr
 - **Settings:** edit `.env` and re-run `deploy.ps1`. `ACK_MODE=reaction` makes it react with :bank: without replying in a thread. `DM_TAGS=off` stops the tag DM after each deposit. `MEME_CHANNEL_IDS` takes a comma-separated list if you want more channels.
 - **Models:** `TAG_MODEL` and `SEARCH_MODEL` default to `claude-sonnet-5-5`. Set either to `claude-haiku-5-5` for cheaper tagging or searching.
 - **Cost:** a container app with one small replica running all the time, a storage account holding a few MB, and possibly a Basic container registry created by the cloud build. Expect a few dollars to roughly $20 a month on the Azure side, so check Cost Management after the first week. Claude usage at a channel's meme rate is small: roughly a cent or two per deposit or search.
-- **Back up:** `python -m scripts.export --env-file .env.azure` copies the catalogue and every image to `.\memebank-backup`.
+- **Back up:** `python -m scripts.export --env-file .env.azure` copies the catalogue and every image to `.\memebank-backup`. The scripts reach storage as you, with no key, so be signed in with `az login`.
 - **Remove everything:** export first. The storage account has a delete lock, so see [docs/DEPLOY-AZURE.md](docs/DEPLOY-AZURE.md#12-removing-it) for removing the lock, then `az group delete -n rg-memebank`. This deletes the stored memes too.
 
 ## Code

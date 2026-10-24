@@ -110,13 +110,26 @@ class AzureStore:
     PARTITION = "meme"
     CACHE_SECONDS = 60  # pick up memes added by the backfill/import scripts running elsewhere
 
-    def __init__(self, connection_string: str, table_name: str = "memes", container: str = "memes"):
+    def __init__(self, connection_string: str = "", table_name: str = "memes", container: str = "memes",
+                 account: str = "", credential=None):
+        """Either a connection string (Azurite, tests) or a storage account name plus an Azure AD credential:
+        the Container App's managed identity in Azure, your `az login` on a PC (DefaultAzureCredential)."""
         from azure.core.exceptions import ResourceExistsError
         from azure.data.tables import TableServiceClient
         from azure.storage.blob import BlobServiceClient
 
-        self.table = TableServiceClient.from_connection_string(connection_string).create_table_if_not_exists(table_name)
-        self.blobs = BlobServiceClient.from_connection_string(connection_string).get_container_client(container)
+        if connection_string:
+            tables = TableServiceClient.from_connection_string(connection_string)
+            blobs = BlobServiceClient.from_connection_string(connection_string)
+        else:
+            if credential is None:
+                from azure.identity import DefaultAzureCredential
+
+                credential = DefaultAzureCredential()
+            tables = TableServiceClient(endpoint=f"https://{account}.table.core.windows.net", credential=credential)
+            blobs = BlobServiceClient(account_url=f"https://{account}.blob.core.windows.net", credential=credential)
+        self.table = tables.create_table_if_not_exists(table_name)
+        self.blobs = blobs.get_container_client(container)
         try:
             self.blobs.create_container()
         except ResourceExistsError:

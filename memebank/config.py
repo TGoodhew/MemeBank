@@ -25,7 +25,8 @@ class Config:
     tag_model: str = "claude-sonnet-5-5"
     search_model: str = "claude-sonnet-5-5"
     storage_backend: str = "local"  # "azure" or "local"
-    azure_connection_string: str = ""
+    azure_connection_string: str = ""  # Azurite and tests; Azure itself signs in by identity (azure_storage_account)
+    azure_storage_account: str = ""
     blob_container: str = "memes"
     table_name: str = "memes"
     local_dir: str = "./memebank-data"
@@ -51,6 +52,7 @@ class Config:
             search_model=e("SEARCH_MODEL", cls.search_model),
             storage_backend=e("STORAGE_BACKEND", "local").lower(),
             azure_connection_string=e("AZURE_STORAGE_CONNECTION_STRING", ""),
+            azure_storage_account=e("AZURE_STORAGE_ACCOUNT", ""),
             blob_container=e("BLOB_CONTAINER", "memes"),
             table_name=e("TABLE_NAME", "memes"),
             local_dir=e("LOCAL_DATA_DIR", "./memebank-data"),
@@ -66,7 +68,9 @@ def make_store(cfg: Config):
     from .store import AzureStore, LocalStore
 
     if cfg.storage_backend == "azure":
+        if cfg.azure_storage_account:  # sign in as the managed identity (in Azure) or your az login (on a PC)
+            return AzureStore(table_name=cfg.table_name, container=cfg.blob_container, account=cfg.azure_storage_account)
         if not cfg.azure_connection_string:
-            raise SystemExit("STORAGE_BACKEND=azure needs AZURE_STORAGE_CONNECTION_STRING")
+            raise SystemExit("STORAGE_BACKEND=azure needs AZURE_STORAGE_ACCOUNT (or AZURE_STORAGE_CONNECTION_STRING)")
         return AzureStore(cfg.azure_connection_string, cfg.table_name, cfg.blob_container)
     return LocalStore(cfg.local_dir)
