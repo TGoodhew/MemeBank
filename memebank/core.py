@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import collections
+import difflib
 import hashlib
 import logging
 import random
+import re
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -18,6 +20,8 @@ from .triggers import Command, parse_command
 log = logging.getLogger(__name__)
 
 DUPLICATE_DISTANCE = 6  # dHash bits; reposts and re-screenshots land well inside this
+# ...but so do different memes on the same template, so a near picture is only a repost if its text matches too
+TEXT_MATCH = 0.9
 
 HELP = """*The Meme Bank* :bank:
 *Deposit:* post an image with "meme for the meme bank" in the message, react to any image post with :bank:, or DM me an image. I'll keep a copy and tag it.
@@ -46,6 +50,15 @@ class Deposit:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def same_text(a: str, b: str) -> bool:
+    """Whether two images' transcribed text is the same, allowing for case, punctuation and small misreads."""
+    a, b = (" ".join(re.sub(r"[\W_]+", " ", (s or "").casefold()).split()) for s in (a, b))  # keeps any script's letters
+    if not a or not b:
+        return a == b  # two text-free pictures go on the hash alone; text on only one of them means different memes
+    # autojunk would ignore common characters in text over 200 long, so one misread could sink a long quote
+    return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio() >= TEXT_MATCH
 
 
 def _ts_to_iso(ts: str) -> str:
@@ -89,11 +102,12 @@ class MemeBank:
             content_type = images.sniff(data)
             h = images.dhash(data)
             near = [(images.hamming(h, m.dhash), m) for m in self.store.all() if m.dhash]
-            near = [x for x in near if x[0] <= DUPLICATE_DISTANCE]
-            if near:
-                return Deposit(min(near, key=lambda x: x[0])[1], "duplicate")
+            near = sorted((x for x in near if x[0] <= DUPLICATE_DISTANCE), key=lambda x: x[0])
             small, small_type = images.for_claude(data)
             tags: Tags = self.tagger.tag(small, small_type, caption)
+            for _, m in near:  # closest picture first
+                if same_text(tags.text_in_image, m.text_in_image):
+                    return Deposit(m, "duplicate")
             number = self.store.next_number()
             meme = Meme(
                 number=number, source_key=source_key, title=tags.title, description=tags.description,
@@ -111,6 +125,7 @@ class MemeBank:
         if not refs:
             return []
         ts = message.get("ts", "")
+        thread = message.get("thread_ts") or ts  # replies go in the post's thread, or the thread it's already in
         caption = message.get("text", "")
         permalink = ""
         try:
@@ -130,12 +145,12 @@ class MemeBank:
             except Exception as e:  # noqa: BLE001
                 log.exception("Couldn't bank %s", ref.key)
                 if acknowledge:
-                    self._say(client, channel, f":warning: Couldn't bank that one: {e}", thread_ts=ts)
+                    self._say(client, channel, f":warning: Couldn't bank that one: {e}", thread_ts=thread)
         if acknowledge:
-            self._acknowledge(client, channel, ts, results)
+            self._acknowledge(client, channel, ts, results, thread)
         return results
 
-    def _acknowledge(self, client, channel: str, ts: str, results: list[Deposit]) -> None:
+    def _acknowledge(self, client, channel: str, ts: str, results: list[Deposit], thread: str = "") -> None:
         fresh = [r for r in results if r.status == "new"]
         dupes = [r for r in results if r.status == "duplicate"]
         if fresh or dupes:
@@ -151,7 +166,7 @@ class MemeBank:
         for r in dupes:
             lines.append(f"Already in the vault as *#{r.meme.number}: {r.meme.title}*. The meme bank never forgets.")
         if lines:
-            self._say(client, channel, "\n".join(lines), thread_ts=ts)
+            self._say(client, channel, "\n".join(lines), thread_ts=thread or ts)
 
     # ------------------------------------------------------------------ withdrawals
     def handle_ask(self, client, channel: str, user: str, rest: str, thread_ts: str | None = None) -> Command:

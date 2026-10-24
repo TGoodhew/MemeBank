@@ -2,10 +2,10 @@ import io
 import random
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from memebank import images
-from memebank.core import MemeBank, images_in
+from memebank.core import MemeBank, images_in, same_text
 from memebank.search import keyword_rank, search
 from memebank.store import LocalStore
 from memebank.tagger import Tags
@@ -22,6 +22,17 @@ def png(seed: int, size=(400, 300)) -> bytes:
     im = im.resize(size, Image.NEAREST)
     out = io.BytesIO()
     im.save(out, "PNG")
+    return out.getvalue()
+
+
+def template_meme(caption: str, fmt="PNG") -> bytes:
+    """One picture with different top text, like two memes made from the same template."""
+    with Image.open(io.BytesIO(png(7, (800, 600)))) as im:
+        im = im.convert("RGB")
+    ImageDraw.Draw(im).text((40, 20), caption, fill="white", font=ImageFont.load_default(size=44),
+                            stroke_width=3, stroke_fill="black")
+    out = io.BytesIO()
+    im.save(out, fmt)
     return out.getvalue()
 
 
@@ -74,13 +85,18 @@ def slack_msg(ts, text, file_id=None, user="UTONY"):
 
 @pytest.fixture
 def setup(tmp_path):
-    blobs = {"F1": png(1), "F2": png(2), "F3": png(3), "F1RESIZED": png(1, (800, 600))}
+    blobs = {"F1": png(1), "F2": png(2), "F3": png(3), "F1RESIZED": png(1, (800, 600)),
+             "T1": template_meme("SOCIALISM WORKS ON PAPER"), "T2": template_meme("WHEN THE BUILD PASSES"),
+             "T1JPEG": template_meme("SOCIALISM WORKS ON PAPER", "JPEG")}
     tagger = FakeTagger(
         by_caption={
             "castro": Tags("Fidel island socialism", "Castro smoking a cigar.", "HAD HIS OWN ISLAND",
                            ["fidel castro", "cuba", "socialism", "cigar"]),
             "baguette": Tags("Baguette diplomacy", "A man in a beret with bread.", "",
                              ["paris", "beret", "baguette"]),
+            "template one": Tags("Socialism on paper", "A template meme.", "SOCIALISM WORKS ON PAPER", ["socialism"]),
+            "template two": Tags("Build passes", "A template meme.", "WHEN THE BUILD PASSES", ["software"]),
+            "repost of one": Tags("Socialism on paper", "A template meme.", "Socialism works on paper!", ["socialism"]),
         },
     )
     store = LocalStore(str(tmp_path))
@@ -160,6 +176,45 @@ def test_repost_of_same_picture_is_caught_as_duplicate(setup):
     res = bank.deposit_message(client, "CGEN", slack_msg("200.1", "This meme needs to be added again to the meme bank", "F1RESIZED"))
     assert res[0].status == "duplicate" and res[0].meme.number == 1 and len(store.all()) == 1
     assert "Already in the vault as *#1" in client.named("chat_postMessage")[-1]["text"]
+
+
+def test_same_template_with_different_text_is_a_new_meme(setup):
+    bank, store, tagger, client = setup
+    assert images.hamming(images.dhash(template_meme("A")), images.dhash(template_meme("B"))) <= 6  # looks like a repost
+    bank.deposit_message(client, "CGEN", slack_msg("100.1", "template one: a meme for the meme bank", "T1"))
+    res = bank.deposit_message(client, "CGEN", slack_msg("200.1", "template two: a meme for the meme bank", "T2"))
+    assert res[0].status == "new" and [m.title for m in store.all()] == ["Socialism on paper", "Build passes"]
+
+
+def test_repost_with_text_is_caught_despite_small_transcription_differences(setup):
+    bank, store, tagger, client = setup
+    bank.deposit_message(client, "CGEN", slack_msg("100.1", "template one: a meme for the meme bank", "T1"))
+    res = bank.deposit_message(client, "CGEN", slack_msg("200.1", "repost of one for the meme bank", "T1JPEG"))
+    assert res[0].status == "duplicate" and res[0].meme.number == 1 and len(store.all()) == 1
+
+
+@pytest.mark.parametrize("a,b,same", [
+    ("", "", True),
+    ("SOCIALISM WORKS\nON PAPER", "socialism works on paper.", True),
+    ("It is usually futile to try to talk facts and analysis to people", "It is usualy futile to try to talk facts and analysis to people", True),
+    ("SOCIALISM WORKS ON PAPER", "WHEN THE BUILD PASSES", False),
+    ("SOCIALISM", "CAPITALISM", False),
+    ("SOCIALISM WORKS ON PAPER", "", False),
+    ("今天不上班", "明天去旅行", False),  # non-Latin text isn't stripped away
+    ("今天不上班", "", False),
+    ("ÇA MARCHE SUR LE PAPIER", "ça marche sur le papier.", True),  # case folds for accented letters too
+    (" ".join(["build passed all checks for today"] * 8),
+     "bui1d" + " ".join(["build passed all checks for today"] * 8)[5:], True),  # long text, one misread
+])
+def test_same_text(a, b, same):
+    assert same_text(a, b) is same
+
+
+def test_deposit_from_a_thread_reply_is_acknowledged_in_that_thread(setup):
+    bank, store, tagger, client = setup
+    bank.deposit_message(client, "CGEN", {**slack_msg("100.2", "a meme for the meme bank", "F1"), "thread_ts": "100.1"})
+    assert client.named("reactions_add")[0]["timestamp"] == "100.2"  # the reaction goes on the reply itself
+    assert client.named("chat_postMessage")[0]["thread_ts"] == "100.1"
 
 
 def test_different_pictures_get_sequential_numbers(setup):

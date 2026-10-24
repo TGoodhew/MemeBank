@@ -29,9 +29,12 @@ def app_and_bank(monkeypatch):
         data = {"ok": True}
         if api_method == "auth.test":
             data.update(user_id=BOT, bot_id="BBOT", team_id="T1", url="https://x.slack.com/")
-        if api_method == "conversations.history":
-            params = kw.get("params") or kw.get("data") or {}
-            data["messages"] = history.get(params.get("latest"), [])
+        params = kw.get("params") or kw.get("data") or {}
+        if api_method == "conversations.history":  # like Slack, top-level posts only
+            data["messages"] = [m for m in history.get(params.get("latest"), [])
+                                if m.get("thread_ts", m["ts"]) == m["ts"]]
+        if api_method == "conversations.replies":
+            data["messages"] = history.get(params.get("ts"), [])
         return SlackResponse(client=self, http_verb="POST", api_url=api_method, req_args={}, data=data,
                              headers={}, status_code=200)
 
@@ -101,3 +104,11 @@ def test_bank_reaction_deposits_the_message(app_and_bank):
     send(app, {"type": "reaction_added", "user": "UTONY", "reaction": "joy",
                "item": {"type": "message", "channel": "CGEN", "ts": "6.0"}})
     assert bank.deposits == [("CGEN", "6.0")]
+
+
+def test_bank_reaction_on_a_thread_reply_deposits_it(app_and_bank):
+    app, bank, history = app_and_bank
+    history["7.1"] = [{"ts": "7.1", "thread_ts": "7.0", "user": "UKEVIN", "text": "lol", "files": IMG}]
+    send(app, {"type": "reaction_added", "user": "UTONY", "reaction": "bank",
+               "item": {"type": "message", "channel": "CGEN", "ts": "7.1"}})
+    assert bank.deposits == [("CGEN", "7.1")]
