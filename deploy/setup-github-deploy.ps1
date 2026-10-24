@@ -5,7 +5,9 @@
 .DESCRIPTION
   Creates (if missing) an Azure app registration "memebank-github-deploy" with a federated credential that only
   the main branch of this GitHub repo can use (OIDC: no password or key is stored anywhere), gives it Contributor
-  on the resource group only, and stores the non-secret IDs as GitHub repository variables with gh.
+  on the resource group only, and stores the IDs it needs with gh: the Azure IDs and registry name as repository
+  secrets (they aren't credentials, but secrets are masked in the public Actions logs), the resource group as a
+  repository variable.
 
   Run it once after deploy.ps1, signed in with az login (MFA) and gh auth login. Safe to re-run.
 
@@ -73,12 +75,20 @@ if (-not $has) {
         --role Contributor --scope $groupId --only-show-errors | Out-Null
 }
 
-Write-Host "== GitHub repository variables (IDs, not secrets)"
+Write-Host "== GitHub repository secrets (masked in the Actions logs) and variables"
+$oldVars = @(& gh variable list --repo $Repo --json name --jq ".[].name")
+if ($LASTEXITCODE -ne 0) { throw "gh variable list failed" }
 foreach ($kv in @(@("AZURE_CLIENT_ID", $appId), @("AZURE_TENANT_ID", $tenant), @("AZURE_SUBSCRIPTION_ID", $subscription),
-                  @("ACR_NAME", $registry), @("RESOURCE_GROUP", $ResourceGroup))) {  # the workflow deploys to this group
-    & gh variable set $kv[0] --repo $Repo --body $kv[1]
-    if ($LASTEXITCODE -ne 0) { throw "gh variable set $($kv[0]) failed" }
+                  @("ACR_NAME", $registry))) {
+    & gh secret set $kv[0] --repo $Repo --body $kv[1]
+    if ($LASTEXITCODE -ne 0) { throw "gh secret set $($kv[0]) failed" }
+    if ($kv[0] -in $oldVars) {  # older versions of this script stored them as plain variables
+        & gh variable delete $kv[0] --repo $Repo
+        if ($LASTEXITCODE -ne 0) { throw "gh variable delete $($kv[0]) failed" }
+    }
 }
+& gh variable set RESOURCE_GROUP --repo $Repo --body $ResourceGroup  # the workflow deploys to this group
+if ($LASTEXITCODE -ne 0) { throw "gh variable set RESOURCE_GROUP failed" }
 
 Write-Host ""
 Write-Host "Done. Pushes to main that pass the tests now deploy themselves (Actions > Deploy)."

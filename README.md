@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/TGoodhew/MemeBank/actions/workflows/test.yml/badge.svg)](https://github.com/TGoodhew/MemeBank/actions/workflows/test.yml)
 
-A Slack bot for #general that takes the running gag literally. When someone posts "a meme for the meme bank", it keeps a copy, has Claude look at the picture and tag it, and files it. Later anyone can ask for it back:
+A Slack bot for your meme channel that takes the running gag literally. When someone posts "a meme for the meme bank", it keeps a copy, has Claude look at the picture and tag it, and files it. Later anyone can ask for it back:
 
 > **hey meme bank, could you find me the France meme**
 > **hey meme bank, what have you got on socialism?**
@@ -47,19 +47,19 @@ Socket Mode lets the bot connect out to Slack, so it needs no public URL, web se
 
 ## Setup (about 20 minutes)
 
-For a full walk-through of every step, including what the deploy script creates, cost, and troubleshooting, see **[docs/DEPLOY-AZURE.md](docs/DEPLOY-AZURE.md)**.
+You need a Slack workspace where you can add apps, an Anthropic API key, an Azure subscription, and PowerShell (Windows, or PowerShell 7 on macOS/Linux) with the Azure CLI. To have code changes deploy themselves, use your own fork or copy of this repo. For a full walk-through of every step, including what the deploy script creates, cost, and troubleshooting, see **[docs/DEPLOY-AZURE.md](docs/DEPLOY-AZURE.md)**.
 
 **1. Create the Slack app**
-- Go to https://api.slack.com/apps, choose **Create New App**, then **From a manifest**, and pick the makercrew workspace.
+- Go to https://api.slack.com/apps, choose **Create New App**, then **From a manifest**, and pick your workspace.
 - Paste in the contents of `slack-manifest.yml` and create the app.
 - Go to **Install App** and install it to the workspace. If the workspace requires approval for apps, a workspace owner has to approve it.
 - Copy the **Bot User OAuth Token** (`xoxb-…`).
 - Go to **Basic Information**, then **App-Level Tokens**, and choose **Generate Token and Scopes**. Name it `socket` and add the scope `connections:write`. Copy the token (`xapp-…`).
-- In #general, type `/invite @Meme Bank`.
+- In your meme channel, type `/invite @Meme Bank`.
 
 **2. Get an Anthropic API key** at https://console.anthropic.com, under API keys.
 
-**3. Fill in settings.** Copy `.env.example` to `.env` and paste in the three tokens. The channel ID for #general and your user ID are already filled in.
+**3. Fill in settings.** Copy `.env.example` to `.env` and paste in the three tokens. Set `MEME_CHANNEL_IDS` to the channel's ID (at the bottom of the channel's *About* tab) and `ADMIN_USER_IDS` to your Slack member ID (your profile, **⋮**, **Copy member ID**), which makes you the bank manager.
 
 **4. Optional: try it on your PC first**
 ```powershell
@@ -85,14 +85,14 @@ After this one-time setup, every merge to `main` that passes the tests deploys i
 
 **7. Bank what's already in the channel**
 ```powershell
-python -m scripts.backfill --env-file .env.azure --channel C6UTZF23Z --dry-run   # list what it found
-python -m scripts.backfill --env-file .env.azure --channel C6UTZF23Z             # bank them, without posting in the channel
+python -m scripts.backfill --env-file .env.azure --channel C0123456789 --dry-run   # list what it found
+python -m scripts.backfill --env-file .env.azure --channel C0123456789             # bank them, without posting in the channel
 ```
-The backfill can only see posts Slack still shows, which on the free plan means the last 90 days. #general's history is already in the bank, so this is only needed for a new channel or a fresh bank. Running it again is harmless: posts already banked are skipped.
+The backfill can only see posts Slack still shows, which on the free plan means the last 90 days, so run it soon after setup. Running it again is harmless: posts already banked are skipped.
 
 To bank image files from your PC (for example, memes that have aged out of Slack), use `scripts.import_local`:
 ```powershell
-python -m scripts.import_local --env-file .env.azure "$env:USERPROFILE\Downloads\image.png" --date 2026-07-27 --posted-by U01D6UG5KFH --caption "what was said when it was posted"
+python -m scripts.import_local --env-file .env.azure "$env:USERPROFILE\Downloads\image.png" --date 2026-07-27 --posted-by U0123456789 --caption "what was said when it was posted"
 ```
 A file that's already in the bank is recognised as a duplicate and skipped.
 
@@ -126,3 +126,7 @@ deploy/         deploy.ps1 (Azure resources, settings, secrets), setup-github-de
 .github/        workflows: test.yml (every push to main and pull request), deploy.yml (after tests pass on main)
 ```
 Run the tests with `pip install pytest` and then `pytest`. The `AzureStore` tests are skipped unless the Azurite storage emulator is running: start it with `npx azurite --inMemoryPersistence --skipApiVersionCheck --loose` and, in another terminal, run `$env:AZURITE=1; pytest tests/test_azure_store.py`. GitHub Actions runs both on every push to `main` and every pull request.
+
+## License
+
+[MIT](LICENSE)
