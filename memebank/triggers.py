@@ -5,6 +5,14 @@ import re
 from dataclasses import dataclass
 
 BANK_RE = re.compile(r"\bmeme[\s-]?bank\b", re.I)
+# Saying it's a deposit: "a meme for the meme bank", "store this in the meme bank", "add to the memebank",
+# "meme bank deposit", or the :bank: emoji. Merely mentioning the meme bank isn't (see "confirm" below).
+DEPOSIT_RE = re.compile(
+    r"\b(?:for|to|into|in|onto)\s+(?:the\s+|our\s+)?meme[\s-]?bank\b"
+    r"|\bmeme[\s-]?bank\s+(?:deposit|submission|entry)\b"
+    r"|:bank:",
+    re.I,
+)
 
 _GREETING = r"(?:hey|hi|hello|yo|oi|ok|okay|g'?day|dear)"
 # "hey meme bank, find me the France meme" / "yo memebank what have you got on cats"
@@ -18,7 +26,7 @@ MENTION_RE = re.compile(r"<@([A-Z0-9]+)(?:\|[^>]*)?>")
 
 @dataclass
 class Trigger:
-    kind: str  # "bank" or "ask"
+    kind: str  # "bank", "confirm" (an image that only mentions the meme bank: ask the poster first) or "ask"
     rest: str = ""
 
 
@@ -30,10 +38,10 @@ def classify(text: str, has_images: bool, bot_user_id: str | None = None, is_dm:
     text = text or ""
     mentioned = bool(bot_user_id) and f"<@{bot_user_id}" in text
 
-    if has_images and (BANK_RE.search(text) or mentioned):
+    if has_images and (DEPOSIT_RE.search(text) or mentioned or is_dm):
         return Trigger("bank")
     if has_images:
-        return Trigger("bank") if is_dm else None
+        return Trigger("confirm") if BANK_RE.search(text) else None
 
     if mentioned:
         rest = strip_mentions(text.replace(f"<@{bot_user_id}>", " "))

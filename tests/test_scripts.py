@@ -47,9 +47,11 @@ def test_candidates_are_peoples_meme_bank_posts_with_images_oldest_first():
         {**slack_msg("4.0", "meme bank", "F2"), "bot_id": "B1"},     # the bot's own post
         slack_msg("3.0", "just a picture", "F2"),                     # no "meme bank"
         slack_msg("2.0", "the meme bank is great"),                   # no image
-        slack_msg("1.0", "Did I post this as a meme bank image", "F1"),
+        slack_msg("1.5", "This needs to be added again to the meme bank", "F1"),
+        slack_msg("1.0", "Did I post this as a meme bank image", "F1"),  # only mentions it
     ]
-    assert [m["ts"] for m in backfill.candidates(newest_first, "CGEN")] == ["1.0", "5.0"]
+    assert [m["ts"] for m in backfill.candidates(newest_first, "CGEN")] == ["1.5", "5.0"]
+    assert [m["ts"] for m in backfill.mentions_only(newest_first, "CGEN")] == ["1.0"]  # listed, not banked
 
 
 def test_since_is_utc_midnight_and_blank_means_everything():
@@ -86,7 +88,8 @@ def test_dry_run_lists_and_changes_nothing(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["backfill", "--channel", "CGEN", "--dry-run", "--env-file", str(env)])
     backfill.main()
     out = capsys.readouterr().out
-    assert "2 messages read, 2 meme-bank posts with images" in out and "1970-01-01  a meme for the meme bank" in out
+    assert "2 messages read, 1 meme-bank posts with images" in out and "1970-01-01  a meme for the meme bank" in out
+    assert "1 image posts only mention the meme bank, so they're left out" in out and "1970-01-01  meme bank" in out
     assert not (tmp_path / "data").exists()
 
 

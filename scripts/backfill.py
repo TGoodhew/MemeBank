@@ -16,7 +16,7 @@ from slack_sdk import WebClient
 from memebank.config import Config, load_env, make_store
 from memebank.core import MemeBank, images_in
 from memebank.tagger import ClaudeTagger
-from memebank.triggers import BANK_RE
+from memebank.triggers import BANK_RE, DEPOSIT_RE
 
 
 def since_to_oldest(since: str) -> str:
@@ -34,10 +34,16 @@ def read_history(client, channel: str, oldest: str = "0") -> list[dict]:
             return messages
 
 
-def candidates(messages: list[dict], channel: str) -> list[dict]:
-    """People's meme-bank posts with an image, oldest first so numbers follow posting order."""
+def candidates(messages: list[dict], channel: str, pattern=DEPOSIT_RE) -> list[dict]:
+    """People's posts with an image that say they're for the meme bank, oldest first so numbers follow posting
+    order. Same rule as the bot: "a meme for the meme bank", "store this in the meme bank", :bank:."""
     return [m for m in reversed(messages)  # Slack returns newest first
-            if not m.get("bot_id") and BANK_RE.search(m.get("text", "")) and images_in(m, channel)]
+            if not m.get("bot_id") and pattern.search(m.get("text", "")) and images_in(m, channel)]
+
+
+def mentions_only(messages: list[dict], channel: str) -> list[dict]:
+    """Image posts that only *mention* the meme bank. Not banked; listed so they can be banked by :bank: reaction."""
+    return [m for m in candidates(messages, channel, BANK_RE) if not DEPOSIT_RE.search(m.get("text", ""))]
 
 
 def bank_all(bank, client, channel: str, posts: list[dict], ack: bool = False) -> dict:
@@ -65,12 +71,20 @@ def main() -> None:
     client = WebClient(token=cfg.slack_bot_token)
     messages = read_history(client, args.channel, since_to_oldest(args.since))
     posts = candidates(messages, args.channel)
+    maybe = mentions_only(messages, args.channel)
     print(f"{len(messages)} messages read, {len(posts)} meme-bank posts with images")
 
-    if args.dry_run:
-        for m in posts:
+    def listing(msgs):
+        for m in msgs:
             when = datetime.fromtimestamp(float(m["ts"]), timezone.utc).strftime("%Y-%m-%d")
             print(f"  {when}  {m.get('text', '')[:70]}")
+
+    if maybe:
+        print(f"{len(maybe)} image posts only mention the meme bank, so they're left out (react :bank: to bank one):")
+        listing(maybe)
+    if args.dry_run:
+        print("Would bank:")
+        listing(posts)
         return
 
     bank = MemeBank(make_store(cfg), ClaudeTagger(cfg.anthropic_api_key, cfg.tag_model, cfg.search_model),

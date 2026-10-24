@@ -13,7 +13,14 @@ BOT = "UBOT123"
 
 class SpyBank:
     def __init__(self):
-        self.deposits, self.asks, self.banked_by = [], [], []
+        self.deposits, self.asks, self.banked_by, self.confirms, self.said = [], [], [], [], []
+
+    def ask_to_bank(self, client, channel, message):
+        self.confirms.append((channel, message.get("ts")))
+        return True
+
+    def say(self, client, channel, text, thread_ts=None):
+        self.said.append((channel, text, thread_ts))
 
     def deposit_message(self, client, channel, message, acknowledge=True, banked_by=""):
         self.deposits.append((channel, message.get("ts")))
@@ -114,10 +121,41 @@ def test_edits_by_bots_or_without_meme_bank_text_arent_deposited(app_and_bank):
     send(app, {"type": "message", "subtype": "message_changed", "channel": "CGEN", "channel_type": "channel",
                "ts": "7.1", "message": {"ts": "7.0", "user": "UTONY", "text": "look at this", **unfurl}})
     send(app, {"type": "message", "subtype": "message_changed", "channel": "CGEN", "channel_type": "channel",
-               "ts": "8.1", "message": {"ts": "8.0", "user": "UTONY", "text": "meme bank", **unfurl}})  # control
+               "ts": "8.1", "message": {"ts": "8.0", "user": "UTONY", "text": "a meme for the meme bank", **unfurl}})  # control
     wait_for(lambda: bank.deposits)
     time.sleep(0.2)  # let the two that should be ignored finish too
     assert bank.deposits == [("CGEN", "8.0")]
+
+
+def test_an_image_that_only_mentions_the_bank_asks_first_instead_of_banking(app_and_bank):
+    app, bank, _ = app_and_bank
+    send(app, {"type": "message", "channel": "CGEN", "channel_type": "channel", "user": "UTONY", "ts": "11.0",
+               "text": "A few issues away from a fully operational ~death star~ meme bank", "files": IMG,
+               "subtype": "file_share"})
+    send(app, {"type": "message", "subtype": "message_changed", "channel": "CGEN", "channel_type": "channel",
+               "ts": "12.1", "message": {"ts": "12.0", "user": "UTONY", "text": "the meme bank is important",
+                                         "attachments": [{"image_url": "https://pbs.twimg.com/b.jpg"}]}})
+    wait_for(lambda: len(bank.confirms) == 2)
+    assert sorted(bank.confirms) == [("CGEN", "11.0"), ("CGEN", "12.0")] and bank.deposits == []
+
+
+def test_yes_in_the_confirm_dm_banks_the_original_post_and_no_leaves_it(app_and_bank):
+    from memebank.core import CONFIRM_EVENT
+
+    app, bank, history = app_and_bank
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "death star meme bank", "files": IMG}]  # the post
+    ask = {"ts": "40.0", "user": BOT, "text": "You mentioned the meme bank… Want me to bank it?",
+           "metadata": {"event_type": CONFIRM_EVENT, "event_payload": {"channel": "CGEN", "ts": "10.0"}}}
+    history["40.0"] = [ask]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "41.0",
+               "thread_ts": "40.0", "text": "yes please"})
+    wait_for(lambda: bank.deposits)
+    assert bank.deposits == [("CGEN", "10.0")] and bank.banked_by == ["UTONY"] and bank.asks == []
+    history["50.0"] = [{**ask, "ts": "50.0"}]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "51.0",
+               "thread_ts": "50.0", "text": "nah"})
+    wait_for(lambda: len(bank.said) >= 2)
+    assert ("DTONY", "OK, I've left it out of the vault.", "50.0") in bank.said and len(bank.deposits) == 1
 
 
 def test_bank_reaction_deposits_the_message(app_and_bank):

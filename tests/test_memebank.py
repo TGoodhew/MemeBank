@@ -109,7 +109,13 @@ def setup(tmp_path):
 # ---------------------------------------------------------------- triggers
 @pytest.mark.parametrize("text,has_img,dm,expect", [
     ("A meme for the meme bank <@U6UTZEXAB|kevin>", True, False, ("bank", "")),
-    ("Did I post this as a meme bank image <@U6UTZEXAB> because if I didn't I should have...", True, False, ("bank", "")),
+    ("Did I post this as a meme bank image <@U6UTZEXAB> because if I didn't I should have...", True, False, ("confirm", "")),
+    ("A few issues away from a fully operational ~death star~ meme bank", True, False, ("confirm", "")),  # a screenshot
+    ("This meme needs to be added again to the meme bank <@U6UTZEXAB|kevin>", True, False, ("bank", "")),
+    ("Store this in the meme bank", True, False, ("bank", "")),
+    ("add it to the memebank please", True, False, ("bank", "")),
+    ("lol :bank:", True, False, ("bank", "")),
+    ("meme bank deposit", True, False, ("bank", "")),
     ("A meme for the meme bank <@U6UTZEXAB|kevin>", False, False, None),  # link not unfurled yet: not a question
     ("This is why the meme bank is important", False, False, None),
     ("just a cat picture", True, False, None),
@@ -293,22 +299,33 @@ def test_reply_goes_into_the_thread_it_was_asked_in(setup):
     assert client.named("files_upload_v2")[0]["thread_ts"] == "9.9"
 
 
-def test_forget_only_by_poster_or_admin(setup):
+def test_only_a_bank_manager_can_forget_and_anyone_else_asks_one(setup):
     bank, store, tagger, client = setup
     _fill(bank, client)
-    bank.handle_ask(client, "CGEN", "UKEVIN", "forget #1")
-    assert store.get(1) is not None and "Only whoever deposited" in client.named("chat_postMessage")[-1]["text"]
+    bank.handle_ask(client, "CGEN", "UTONY", "forget #1")  # even the person who deposited it only asks
+    posts = client.named("chat_postMessage")
+    to_admin = [kw for kw in posts if kw["channel"] == "UADMIN"]
+    assert store.get(1) is not None and len(to_admin) == 1
+    assert "<@UTONY> asked to remove *#1: Fidel island socialism* from <#CGEN>" in to_admin[0]["text"]
+    assert "forget #1" in to_admin[0]["text"]
+    assert "I've asked a bank manager to remove #1" in posts[-1]["text"] and posts[-1]["channel"] == "CGEN"
+    bank.handle_ask(client, "CGEN", "UADMIN", "forget #1")
+    assert store.get(1) is None and "Withdrawn: #1" in client.named("chat_postMessage")[-1]["text"]
+
+
+def test_forget_with_no_bank_manager_configured_says_so(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    bank.admins = set()
     bank.handle_ask(client, "CGEN", "UTONY", "forget #1")
-    assert store.get(1) is None
-    bank.handle_ask(client, "CGEN", "UADMIN", "forget #2")
-    assert store.all() == []
+    assert "no bank manager" in client.named("chat_postMessage")[-1]["text"] and store.get(1) is not None
 
 
 def test_forget_hides_and_restore_brings_back(setup):
     bank, store, tagger, client = setup
     _fill(bank, client)
     say = lambda: client.named("chat_postMessage")[-1]["text"]  # noqa: E731
-    bank.handle_ask(client, "CGEN", "UTONY", "forget #1")
+    bank.handle_ask(client, "CGEN", "UADMIN", "forget #1")
     assert "restore #1" in say()
     hidden = store.get(1, include_withdrawn=True)
     assert hidden.withdrawn_at and store.get_image(hidden) == png(1)  # still stored, image and all
@@ -316,11 +333,11 @@ def test_forget_hides_and_restore_brings_back(setup):
     assert "*1 memes*" in say()
     bank.handle_ask(client, "CGEN", "U", "#1")
     assert "was withdrawn" in say() and not client.named("files_upload_v2")
-    bank.handle_ask(client, "CGEN", "UKEVIN", "restore #1")
-    assert "Only whoever deposited" in say() and store.get(1) is None
-    bank.handle_ask(client, "CGEN", "UTONY", "restore #1")
+    bank.handle_ask(client, "CGEN", "UTONY", "restore #1")  # its depositor can't: restoring is a bank manager's call
+    assert "Only a bank manager can restore #1" in say() and store.get(1) is None
+    bank.handle_ask(client, "CGEN", "UADMIN", "restore #1")
     assert "back in the vault" in say() and store.get(1).title == "Fidel island socialism"
-    bank.handle_ask(client, "CGEN", "UTONY", "restore #1")
+    bank.handle_ask(client, "CGEN", "UADMIN", "restore #1")
     assert "already in the vault" in say()
 
 
@@ -336,7 +353,7 @@ def test_restore_works_even_when_everything_was_forgotten(setup):
 def test_forgotten_numbers_are_never_reused(setup):
     bank, store, tagger, client = setup
     _fill(bank, client)
-    bank.handle_ask(client, "CGEN", "UKEVIN", "forget #2")
+    bank.handle_ask(client, "CGEN", "UADMIN", "forget #2")
     bank.deposit_message(client, "CGEN", slack_msg("3.0", "meme bank", "F3"))
     assert [m.number for m in store.all()] == [1, 3]
 
@@ -345,7 +362,7 @@ def test_reacting_to_a_forgotten_post_offers_restore_instead_of_a_copy(setup):
     bank, store, tagger, client = setup
     msg = slack_msg("100.1", "a meme for the meme bank", "F1")
     bank.deposit_message(client, "CGEN", msg)
-    bank.handle_ask(client, "CGEN", "UTONY", "forget #1")
+    bank.handle_ask(client, "CGEN", "UADMIN", "forget #1")
     res = bank.deposit_message(client, "CGEN", msg)
     assert [r.status for r in res] == ["withdrawn"] and len(store.all(include_withdrawn=True)) == 1
     assert "restore #1" in client.named("chat_postMessage")[-1]["text"]
@@ -356,7 +373,7 @@ def test_export_writes_catalogue_and_images_including_withdrawn(setup, tmp_path)
 
     bank, store, tagger, client = setup
     _fill(bank, client)
-    bank.handle_ask(client, "CGEN", "UTONY", "forget #1")
+    bank.handle_ask(client, "CGEN", "UADMIN", "forget #1")
     out = tmp_path / "backup"
     assert export(store, str(out)) == {"memes": 2, "withdrawn": 1, "downloaded": 2, "kept": 0}
     rows = json.loads((out / "memes.json").read_text(encoding="utf-8"))
@@ -499,6 +516,36 @@ def test_dm_deposit_gets_the_tag_hint_in_its_own_thread(setup):
     posts = client.named("chat_postMessage")
     assert len(posts) == 1 and posts[0]["channel"] == "DTONY" and posts[0]["thread_ts"] == "100.1"
     assert "Here are the tags I used" in posts[0]["text"] and "tag #1" in posts[0]["text"]
+
+
+def test_an_image_that_only_mentions_the_bank_gets_a_dm_asking_with_the_post_in_metadata(setup):
+    from memebank.core import CONFIRM_EVENT
+
+    bank, store, tagger, client = setup
+    msg = slack_msg("100.1", "A few issues away from a fully operational ~death star~ meme bank", "F1", user="UTONY")
+    assert bank.ask_to_bank(client, "CGEN", msg)
+    dm = client.named("chat_postMessage")[0]
+    assert dm["channel"] == "UTONY" and "Want me to bank it?" in dm["text"] and "<#CGEN>" in dm["text"]
+    assert dm["metadata"] == {"event_type": CONFIRM_EVENT, "event_payload": {"channel": "CGEN", "ts": "100.1"}}
+    assert store.all() == []  # nothing banked until they say so
+    assert not bank.ask_to_bank(client, "CGEN", msg)  # and only asked once
+    assert len(client.named("chat_postMessage")) == 1
+
+
+def test_no_need_to_ask_about_something_already_banked(setup):
+    bank, store, tagger, client = setup
+    bank.deposit_message(client, "CGEN", slack_msg("100.1", "a meme for the meme bank", "F1"))
+    client.calls.clear()
+    assert not bank.ask_to_bank(client, "CGEN", slack_msg("100.1", "meme bank", "F1"))
+    assert not client.named("chat_postMessage")
+
+
+def test_a_posted_meme_says_how_to_tag_it_and_ask_for_its_removal(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    bank.handle_ask(client, "CGEN", "U", "#2")
+    comment = client.named("files_upload_v2")[0]["initial_comment"]
+    assert comment.startswith("*#2: Baguette diplomacy*") and "tag #2" in comment and "forget #2" in comment
 
 
 def test_empty_vault_and_stats_and_help(setup):
