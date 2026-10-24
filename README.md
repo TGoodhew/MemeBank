@@ -126,3 +126,7 @@ deploy/         deploy.ps1 (Azure resources, settings, secrets), setup-github-de
 .github/        workflows: test.yml (every push to main and pull request), deploy.yml (after tests pass on main)
 ```
 Run the tests with `pip install pytest` and then `pytest`. The `AzureStore` tests are skipped unless the Azurite storage emulator is running: start it with `npx azurite --inMemoryPersistence --skipApiVersionCheck --loose` and, in another terminal, run `$env:AZURITE=1; pytest tests/test_azure_store.py`. GitHub Actions runs both on every push to `main` and every pull request.
+
+## License
+
+[MIT](LICENSE)
