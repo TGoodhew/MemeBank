@@ -1,6 +1,7 @@
 """AzureStore against Azurite (the local Azure Storage emulator). Skipped unless AZURITE=1.
 
-    azurite --silent --location ./azurite-data &   then   AZURITE=1 pytest tests/test_azure_store.py
+    npx azurite --silent --inMemoryPersistence --skipApiVersionCheck --loose   then (in another terminal)
+    AZURITE=1 pytest tests/test_azure_store.py
 """
 import os
 import threading

@@ -12,6 +12,7 @@ Slack (makercrew)  ◄── outbound websocket ──  Container App "memebank"
                                                  └──►  Anthropic API (Claude)
 Container registry (created by the build) holds the bot's image.
 All of it lives in one resource group: rg-memebank.
+GitHub Actions (this repo) tests every change and deploys what's merged to main.
 ```
 
 ---
@@ -24,6 +25,7 @@ Open **PowerShell** (Windows PowerShell 5.1 or PowerShell 7 both work) in `C:\Us
 |---|---|---|
 | Azure CLI | `az --version` | `winget install -e --id Microsoft.AzureCLI`, then open a new terminal |
 | Python 3.10+ | `python --version` | `winget install -e --id Python.Python.3.12` |
+| GitHub CLI, signed in (for the one-time Actions setup in §7) | `gh auth status` | `winget install -e --id GitHub.cli`, then `gh auth login` |
 | An Azure subscription you can create resources in | `az login`, then `az account list -o table` | portal.azure.com |
 
 If PowerShell refuses to run the script ("running scripts is disabled"), allow it for this window only:
@@ -76,7 +78,7 @@ notepad .env
 Paste in the three secrets: `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` and `ANTHROPIC_API_KEY`. The rest is already set for makercrew:
 
 - `MEME_CHANNEL_IDS=C6UTZF23Z` is #general.
-- `ADMIN_USER_IDS=U01D6UG5KFH` is you. You can withdraw any meme; everyone else can only withdraw their own deposits.
+- `ADMIN_USER_IDS=U01D6UG5KFH` is you, the bank manager. Only bank managers can withdraw (`forget`) and `restore` memes. When anyone else asks to forget one, the bot DMs the bank managers, who decide.
 - `ACK_MODE=thread` replies with the tags. Set it to `reaction` if you only want the :bank: reaction.
 
 `.env` holds secrets. It's listed in `.gitignore` and `.dockerignore`, so it never goes into Git or the container image.
@@ -148,11 +150,19 @@ az containerapp logs show -n memebank -g rg-memebank --follow
 
 Look for `Meme Bank open for business (azure storage, 0 memes)`. Press Ctrl+C to stop following the logs; the bot keeps running. Then send `hey meme bank, stats` in #general.
 
+**Then let GitHub deploy code changes** (one time, signed in with `az login` and `gh auth login`):
+
+```powershell
+.\deploy\setup-github-deploy.ps1
+```
+
+It creates an app registration that only this repo's `main` branch can sign in as (OIDC, so no Azure secret is stored in GitHub), gives it Contributor on `rg-memebank` only, and sets the repo variables the Deploy workflow reads. From then on, merging to `main` ships code (see §9).
+
 ---
 
-## 8. Bank the existing posts and the two rescued memes
+## 8. Bank the existing posts
 
-Do this soon. On the free plan the bot can only read the last 90 days of the channel, and the 27 July post ages out on 25 October.
+On the free plan the bot can only read the last 90 days of the channel. #general's history is already in the bank (#1–#15 are its posts from July to mid-October 2026, including the two Thomas Sowell memes), so this is only needed again for a new channel or a fresh bank. Re-running it is harmless: posts already banked are skipped.
 
 ```powershell
 .venv\Scripts\Activate.ps1
@@ -162,14 +172,13 @@ python -m scripts.backfill --env-file .env.azure --channel C6UTZF23Z
 
 The dry run lists what it found. The real run banks the posts oldest first, so the numbering follows posting order. It doesn't react or reply on the old posts. Add `--ack` if you want it to.
 
-Then import the two Thomas Sowell memes from Downloads, adjusting the file names to whatever they're called there:
+To bank image files from your PC instead (for example, memes that have aged out of Slack's history), use the import script. Several files can be given at once:
 
 ```powershell
-python -m scripts.import_local --env-file .env.azure "$env:USERPROFILE\Downloads\image.png" --date 2026-07-27 --posted-by U01D6UG5KFH --caption "This meme needs to be added again to the meme bank"
-python -m scripts.import_local --env-file .env.azure "$env:USERPROFILE\Downloads\image (1).png" --date 2026-08-01 --posted-by U01D6UG5KFH --caption "A Sowell meme for the meme bank that is 100% confirmed by my Visual Studio career"
+python -m scripts.import_local --env-file .env.azure "$env:USERPROFILE\Downloads\image.png" --date 2026-07-27 --posted-by U01D6UG5KFH --caption "what was said when it was posted"
 ```
 
-If the backfill already banked a post, its import is recognised as a duplicate and skipped.
+A file that's already in the bank, or a resized copy of one, is recognised as a duplicate and skipped.
 
 The bot picks up memes added by these scripts within a minute.
 
@@ -177,11 +186,9 @@ The bot picks up memes added by these scripts within a minute.
 
 ## 9. Day-to-day
 
-- **Ship a code change:** merge it to `main`. Once the **Tests** workflow passes, the **Deploy** workflow (`.github/workflows/deploy.yml`) builds the image in the registry and moves the container app onto it. Watch it under the repo's *Actions* tab, or run it by hand with `gh workflow run deploy.yml`. It signs in to Azure by OIDC, as an app registration with Contributor on `rg-memebank` only, and no Azure secret is stored in GitHub. Set this up once with `.\deploy\setup-github-deploy.ps1` (signed in with `az login` and `gh auth login`).
-- **Change settings or secrets:** still `.\deploy\deploy.ps1`. The Deploy workflow only changes the image. Re-running `deploy.ps1` is also the fallback when Actions isn't set up.
-- **Change a setting** (channels, ACK_MODE, models): edit `.env`, then re-run the script.
-- **Rotate a key:** put the new value in `.env` and re-run the script.
-- **Restart:** `az containerapp revision restart -n memebank -g rg-memebank --revision (az containerapp revision list -n memebank -g rg-memebank --query "[0].name" -o tsv)`
+- **Ship a code change:** merge it to `main`. Once the **Tests** workflow passes, the **Deploy** workflow (`.github/workflows/deploy.yml`) builds the image in the registry and moves the container app onto it, then waits for the new revision to run. Watch it under the repo's *Actions* tab, or run it by hand with `gh workflow run deploy.yml`, which deploys `main` as it is when you start it. Automatic deploys only deploy the newest commit on `main`, so re-running tests for an older commit never rolls the bot back. A manual run isn't checked that way: re-running an *old* manual Deploy run deploys the commit it originally ran on, so start a new one instead. It signs in to Azure by OIDC, as an app registration with Contributor on `rg-memebank` only, and no Azure secret is stored in GitHub (set up in §7).
+- **Change settings or secrets** (channels, ACK_MODE, DM_TAGS, models, a rotated key): edit `.env`, then re-run `.\deploy\deploy.ps1`. The Deploy workflow only changes the image. The script also rebuilds the image from your folder, so run `git checkout main; git pull` first, or it replaces what Actions deployed with whatever code you have locally. Re-running `deploy.ps1` is also the fallback when Actions isn't set up.
+- **Restart:** `az containerapp revision restart -n memebank -g rg-memebank --revision (az containerapp show -n memebank -g rg-memebank --query properties.latestRevisionName -o tsv)`
 - **See the app in the portal:** portal.azure.com, then **Resource groups**, then **rg-memebank**, then **memebank**. *Log stream* shows live logs, and *Revisions and replicas* shows health.
 - **Alerts:** with `ALERT_EMAIL` set in `.env`, the deploy script creates three alerts that email that address. Each emails once when it fires and again when it resolves:
 
@@ -228,6 +235,9 @@ My estimate is a few dollars to about $20 a month in total. Check the real figur
 | Claude errors 429 / overloaded | Temporary. Searches fall back to keyword matching. A failed deposit can be retried by removing and re-adding the :bank: reaction. |
 | Some memes missing from the bank | A second copy, such as the local test, was running at the same time. Stop it. |
 | Deploy fails on provider registration | Registration can take a few minutes the first time. Wait and re-run. |
+| Deploy workflow fails at `azure/login` with `AADSTS700213` ("no matching federated identity record") | The token GitHub sends doesn't match the app registration's federated credentials, for example after the repo is renamed or moved. The old credentials still hold the names the setup script uses, so delete them first: `$app = az ad app list --display-name memebank-github-deploy --query "[0].appId" -o tsv`, then `az ad app federated-credential delete --id $app --federated-credential-id github-main` and the same with `github-main-ids`. Then re-run `.\deploy\setup-github-deploy.ps1` (with `-Repo owner/new-name` if needed) and re-run the workflow. |
+| Deploy workflow fails at "Build the image" with `registry-1.docker.io` … `Client.Timeout exceeded` | Docker Hub was slow to hand over the Python base image. The step already retries once; if both tries fail, re-run the failed job from the *Actions* tab. The bot keeps running the previous version meanwhile. |
+| Tests fail on `main`, so nothing deploys | Fix the failure in a pull request. If it was a one-off (a flaky test), re-run the failed job; a pass then deploys as normal. |
 | Deploy fails: storage name taken | Pass `-StorageAccount memebank<something unique>`. |
 | Deploy fails with `AADSTS50076` … "you must use multi-factor authentication" | Azure requires MFA to create or change resources, while reads still work without it. With a personal Microsoft account, turn on two-step verification at account.microsoft.com/security. Then make the CLI sign in through the browser instead of Windows' silent sign-in: `az config set core.enable_broker_on_windows=false`, `az account clear`, `az login --tenant <tenant id>`. The browser sign-in has to ask for your second factor. |
 | `UnicodeEncodeError: 'charmap' codec can't encode…` from `az` | The CLI on Windows can't print some characters when its output is piped or redirected, for example the ⚡ in the bot's startup log. Run the command directly in a terminal, or use *Log stream* in the portal. The Dockerfile turns off pip's progress bar so the cloud-build log stays plain ASCII for the same reason. |
