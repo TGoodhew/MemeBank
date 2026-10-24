@@ -28,9 +28,14 @@ class Meme:
     caption: str = ""  # what the poster wrote alongside it
     banked_at: str = ""
     withdrawn_at: str = ""  # set by "forget"; the row and image stay, so "restore" can undo it
+    extra_tags: list[str] = field(default_factory=list)  # added by people ("tag #12 ..."); a retag keeps these
+
+    @property
+    def all_tags(self) -> list[str]:
+        return list(dict.fromkeys(self.tags + self.extra_tags))
 
     def catalogue_line(self) -> str:
-        bits = [f"#{self.number}", self.title, "tags: " + ", ".join(self.tags), self.description]
+        bits = [f"#{self.number}", self.title, "tags: " + ", ".join(self.all_tags), self.description]
         if self.text_in_image:
             bits.append("text: " + self.text_in_image[:200].replace("\n", " "))
         if self.caption:
@@ -151,6 +156,7 @@ class AzureStore:
     def _to_entity(cls, m: Meme) -> dict:
         d = asdict(m)
         d["tags"] = json.dumps(m.tags)
+        d["extra_tags"] = json.dumps(m.extra_tags)
         d.update(PartitionKey=cls.PARTITION, RowKey=f"{m.number:07d}")
         return d
 
@@ -158,6 +164,8 @@ class AzureStore:
     def _from_entity(e) -> Meme:
         d = {k: e.get(k) for k in _FIELDS if k in e}
         d["tags"] = json.loads(d.get("tags") or "[]")
+        if "extra_tags" in d:  # rows from before manual tags don't have the column
+            d["extra_tags"] = json.loads(d["extra_tags"] or "[]")
         d["number"] = int(d["number"])
         return Meme(**{k: ("" if v is None else v) for k, v in d.items()})
 

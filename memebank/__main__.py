@@ -41,7 +41,7 @@ def main() -> None:
         raise SystemExit("Missing settings: " + ", ".join(missing))
     store = make_store(cfg)
     tagger = ClaudeTagger(cfg.anthropic_api_key, cfg.tag_model, cfg.search_model)
-    bank = MemeBank(store, tagger, cfg.slack_bot_token, cfg.admin_user_ids, cfg.ack_mode)
+    bank = MemeBank(store, tagger, cfg.slack_bot_token, cfg.admin_user_ids, cfg.ack_mode, dm_tags=cfg.dm_tags)
     app = build_app(cfg, bank)
     log.info("Meme Bank open for business (%s storage, %d memes)", cfg.storage_backend, len(store.all()))
     handler = SocketModeHandler(app, cfg.slack_app_token)

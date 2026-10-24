@@ -1,4 +1,6 @@
 """Feeds Slack-shaped events through the real Bolt app, with the Slack Web API faked out."""
+import time
+
 import pytest
 from slack_bolt.request import BoltRequest
 from slack_sdk.web.slack_response import SlackResponse
@@ -11,10 +13,11 @@ BOT = "UBOT123"
 
 class SpyBank:
     def __init__(self):
-        self.deposits, self.asks = [], []
+        self.deposits, self.asks, self.banked_by = [], [], []
 
-    def deposit_message(self, client, channel, message, acknowledge=True):
+    def deposit_message(self, client, channel, message, acknowledge=True, banked_by=""):
         self.deposits.append((channel, message.get("ts")))
+        self.banked_by.append(banked_by)
         return []
 
     def handle_ask(self, client, channel, user, rest, thread_ts=None):
@@ -50,6 +53,13 @@ def send(app, event):
             "event_id": "Ev1", "event_time": 1}
     resp = app.dispatch(BoltRequest(body=body, mode="socket_mode"))
     assert resp.status == 200
+
+
+def wait_for(done, timeout=5.0):
+    """Bolt runs listeners on a thread pool after acking, so events can finish out of order."""
+    deadline = time.time() + timeout
+    while not done() and time.time() < deadline:
+        time.sleep(0.01)
 
 
 IMG = [{"id": "F1", "mimetype": "image/png", "url_private_download": "https://files/F1"}]
@@ -104,6 +114,29 @@ def test_bank_reaction_deposits_the_message(app_and_bank):
     send(app, {"type": "reaction_added", "user": "UTONY", "reaction": "joy",
                "item": {"type": "message", "channel": "CGEN", "ts": "6.0"}})
     assert bank.deposits == [("CGEN", "6.0")]
+
+
+def test_bank_reaction_credits_whoever_reacted(app_and_bank):
+    app, bank, history = app_and_bank
+    history["6.0"] = [{"ts": "6.0", "user": "UKEVIN", "text": "lol", "files": IMG}]
+    send(app, {"type": "reaction_added", "user": "UTONY", "reaction": "bank",
+               "item": {"type": "message", "channel": "CGEN", "ts": "6.0"}})
+    assert bank.banked_by == ["UTONY"]
+
+
+def test_plain_words_replied_under_the_banked_dm_become_tags(app_and_bank):
+    app, bank, history = app_and_bank
+    history["9.0"] = [{"ts": "9.0", "user": BOT, "text": "Banked *#7: Castro cigar*. Here are the tags I used: ..."}]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "9.5",
+               "thread_ts": "9.0", "text": "ilhan omar, squad"})
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "9.6",
+               "thread_ts": "9.0", "text": "#3"})  # an actual command in that thread still works as one
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "9.7",
+               "text": "ilhan omar"})  # not in a thread: an ordinary DM search
+    wait_for(lambda: len(bank.asks) == 3)
+    assert sorted(bank.asks, key=str) == sorted([("DTONY", "UTONY", "tag #7 ilhan omar, squad", "9.0"),
+                                                 ("DTONY", "UTONY", "#3", "9.0"),
+                                                 ("DTONY", "UTONY", "ilhan omar", None)], key=str)
 
 
 def test_bank_reaction_on_a_thread_reply_deposits_it(app_and_bank):

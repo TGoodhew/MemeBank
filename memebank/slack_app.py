@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from slack_bolt import App
 
 from .core import MemeBank, images_in
-from .triggers import BANK_RE, classify
+from .triggers import BANK_RE, classify, parse_command
 
 log = logging.getLogger(__name__)
+
+BANKED_RE = re.compile(r"Banked (?:as )?\*#(\d+)")  # the bot's own "Banked as *#12: ..." messages
 
 IGNORED_SUBTYPES = {"bot_message", "message_deleted", "channel_join", "channel_leave", "channel_topic",
                     "channel_purpose", "channel_name", "pinned_item", "unpinned_item", "tombstone"}
@@ -46,10 +49,27 @@ def build_app(cfg, bank: MemeBank) -> App:
         trig = classify(text, bool(images_in(event, channel)), bot_user_id, is_dm=channel_type == "im")
         if trig is None:
             return
+        thread_ts = event.get("thread_ts")
         if trig.kind == "bank":
             bank.deposit_message(client, channel, event)
-        else:
-            bank.handle_ask(client, channel, event.get("user", ""), trig.rest, thread_ts=event.get("thread_ts"))
+            return
+        rest = trig.rest
+        if channel_type == "im" and thread_ts and thread_ts != event.get("ts") and parse_command(rest).name == "search":
+            # Plain words replied under the bot's "Banked #12" DM are tags for #12, not a search.
+            number = banked_number_in_thread(client, channel, thread_ts)
+            if number:
+                rest = f"tag #{number} {rest}"
+        bank.handle_ask(client, channel, event.get("user", ""), rest, thread_ts=thread_ts)
+
+    def banked_number_in_thread(client, channel: str, thread_ts: str) -> int | None:
+        try:
+            msgs = client.conversations_replies(channel=channel, ts=thread_ts, limit=50).get("messages", [])
+        except Exception:  # noqa: BLE001
+            log.exception("Couldn't read the DM thread")
+            return None
+        found = [int(m.group(1)) for msg in msgs if msg.get("user") == bot_user_id or msg.get("bot_id")
+                 for m in [BANKED_RE.search(msg.get("text", ""))] if m]
+        return found[-1] if found else None
 
     @app.event("reaction_added")
     def on_reaction(event, client):
@@ -69,7 +89,7 @@ def build_app(cfg, bank: MemeBank) -> App:
             log.exception("Couldn't load the reacted-to message")
             return
         if msgs and not msgs[0].get("bot_id"):
-            bank.deposit_message(client, channel, msgs[0])
+            bank.deposit_message(client, channel, msgs[0], banked_by=event.get("user", ""))
 
     @app.event("app_mention")
     def _ignore_mentions():  # mentions are handled as ordinary messages above

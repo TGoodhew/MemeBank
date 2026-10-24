@@ -29,10 +29,10 @@ def keyword_rank(query: str, memes: list[Meme]) -> list[tuple[int, Meme]]:
     ql = (query or "").lower()
     scored = []
     for m in memes:
-        tag_words = set(_words(" ".join(m.tags)))
+        tag_words = set(_words(" ".join(m.all_tags)))
         title = set(_words(m.title))
         body = set(_words(" ".join([m.description, m.text_in_image, m.caption])))
-        score = sum(3 for t in m.tags if " " in t and t in ql)  # multi-word tags like "thomas sowell"
+        score = sum(3 for t in m.all_tags if " " in t and t in ql)  # multi-word tags like "thomas sowell"
         for w in q:
             score += 3 if w in tag_words else 0
             score += 2 if w in title else 0
