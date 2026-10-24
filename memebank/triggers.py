@@ -55,6 +55,21 @@ class Command:
     query: str = ""
 
 
+_QUOTED = re.compile(r'"([^"]+)"|“([^”]+)”')
+
+
+def split_tags(text: str) -> list[str]:
+    """'"Trump screamer" and "Beanie Girl"' -> ['Trump screamer', 'Beanie Girl']. Quoted phrases stay whole
+    (so "rock and roll" can be one tag); the rest splits on commas, semicolons, & and the word "and"."""
+    pieces = _QUOTED.split(text or "")  # [outside, quote, quote, outside, quote, quote, outside, ...]
+    out: list[str] = []
+    for i in range(0, len(pieces), 3):
+        out += [w.strip(" '\"“”") for w in re.split(r"[,;&]|\band\b", pieces[i], flags=re.I)]
+        if i + 2 < len(pieces):
+            out.append(pieces[i + 1] or pieces[i + 2])
+    return [t.strip() for t in out if t and t.strip()]
+
+
 _FILLER = re.compile(
     r"^(?:(?:can|could|would|will)\s+you\s+)?(?:please\s+)?"
     r"(?:(?:find|show|get|give|fetch|dig\s+up|pull\s+up|bring\s+up|post|grab)\s+(?:me\s+|us\s+)?)?",
@@ -89,6 +104,12 @@ def parse_command(rest: str) -> Command:
     m = re.fullmatch(r"(?:untag|remove\s+tags?)\s+(?:meme\s+)?#?(\d+)(?!\d)(?:\s*[:,-]?\s*(.+))?", raw, re.I | re.S)
     if m:
         return Command("untag", int(m.group(1)), query=(m.group(2) or "").strip())
+    # "Tag it "Trump screamer" and "Beanie Girl"": no number, so number=None. In a DM the bot fills in the meme
+    # from its last "Banked #N" message there; anywhere else it asks which meme.
+    m = re.fullmatch(r"(?:please\s+)?(?:tag\s+(?:it|this(?:\s+one)?|that(?:\s+one)?)|add\s+tags?)"
+                     r"(?:\s+(?:with|as)\b)?(?:\s*[:,-]?\s*(.+))?", raw, re.I | re.S)
+    if m:
+        return Command("tag", None, query=(m.group(1) or "").strip())
     m = re.fullmatch(r"(?:(?:show|get|post)\s+(?:me\s+)?)?(?:meme\s+)?(?:#|number\s+|no\.?\s*)(\d+)", low)
     if m:
         return Command("get", int(m.group(1)))

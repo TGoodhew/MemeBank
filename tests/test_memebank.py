@@ -10,7 +10,7 @@ from memebank.core import MemeBank, images_in, same_text
 from memebank.search import keyword_rank, search
 from memebank.store import LocalStore
 from memebank.tagger import Tags
-from memebank.triggers import classify, parse_command
+from memebank.triggers import classify, parse_command, split_tags
 
 BOT = "UBOT123"
 
@@ -148,6 +148,9 @@ def test_classify(text, has_img, dm, expect):
     ("untag #12 squad", "untag", 12, "squad"),
     ("tag #12", "tag", 12, ""),  # not "tag #1 with 2"
     ("untag #12", "untag", 12, ""),
+    ('Tag it "Trump screamer" and "Beanie Girl"', "tag", None, '"Trump screamer" and "Beanie Girl"'),
+    ("tag this one with cabin trip", "tag", None, "cabin trip"),
+    ("add tags: kevin", "tag", None, "kevin"),
     ("tag #12 without context", "tag", 12, "without context"),
     ("could you find me the France meme?", "search", None, "the France meme"),
     ("What memes relate to France", "search", None, "What memes relate to France"),
@@ -391,6 +394,34 @@ def test_anyone_can_add_tags_and_they_survive_a_retag(setup):
     assert "kept the tags people added: ilhan omar, squad" in say() and store.get(1).extra_tags == ["ilhan omar", "squad"]
     assert search("the ilhan omar one", store.all(), tagger=None)[0].number == 1  # keyword fallback sees them
     assert "ilhan omar" in store.get(1).catalogue_line()  # and so does Claude's pick
+
+
+@pytest.mark.parametrize("text,tags", [
+    ('"Trump screamer" and "Beanie Girl"', ["Trump screamer", "Beanie Girl"]),
+    ("thomas sowell quote card, moral superiority", ["thomas sowell quote card", "moral superiority"]),
+    ('cabin, "rock and roll", kevin & zak', ["cabin", "rock and roll", "kevin", "zak"]),
+    ("“curly quotes” and plain", ["curly quotes", "plain"]),
+    ("brandon; candy", ["brandon", "candy"]),
+    ("", []),
+])
+def test_split_tags(text, tags):
+    assert split_tags(text) == tags
+
+
+def test_tag_reply_names_the_tags_that_were_already_there(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    bank.handle_ask(client, "CGEN", "UZAK", 'tag #1 "Trump screamer" and cuba')  # cuba is one of Claude's
+    text = client.named("chat_postMessage")[-1]["text"]
+    assert "with _trump screamer_ (already had: cuba)" in text and store.get(1).extra_tags == ["trump screamer"]
+
+
+def test_tag_it_without_a_number_outside_a_dm_asks_which_meme(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    bank.handle_ask(client, "CGEN", "UZAK", "tag it cabin trip")
+    assert "Which meme?" in client.named("chat_postMessage")[-1]["text"]
+    assert not store.get(1).extra_tags and not store.get(2).extra_tags
 
 
 def test_tag_with_no_words_asks_for_some_and_changes_nothing(setup):

@@ -138,6 +138,26 @@ def test_bank_reaction_credits_whoever_reacted(app_and_bank):
     assert bank.banked_by == ["UTONY"]
 
 
+def test_tag_it_straight_into_the_dm_tags_the_last_meme_banked_there(app_and_bank):
+    app, bank, history = app_and_bank
+    history[None] = [  # the DM's recent history (fetched without "latest"), newest first like Slack
+        {"ts": "21.0", "user": BOT, "text": "Banked *#21: Leftists when they get what they want*. Here are the tags…"},
+        {"ts": "20.0", "user": BOT, "text": "Banked *#20: Catholic France vs atheist France*. Here are the tags…"},
+    ]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "22.0",
+               "text": 'Tag it "Trump screamer" and "Beanie Girl"'})
+    wait_for(lambda: bank.asks)
+    assert bank.asks == [("DTONY", "UTONY", 'tag #21 "Trump screamer" and "Beanie Girl"', None)]
+
+
+def test_tag_it_with_nothing_banked_in_the_dm_is_left_for_the_bank_to_ask_which(app_and_bank):
+    app, bank, history = app_and_bank
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "22.0",
+               "text": "tag it cabin trip"})
+    wait_for(lambda: bank.asks)
+    assert bank.asks == [("DTONY", "UTONY", "tag it cabin trip", None)]
+
+
 def test_plain_words_replied_under_the_banked_dm_become_tags(app_and_bank):
     app, bank, history = app_and_bank
     history["9.0"] = [{"ts": "9.0", "user": BOT, "text": "Banked *#7: Castro cigar*. Here are the tags I used: ..."}]

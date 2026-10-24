@@ -54,12 +54,23 @@ def build_app(cfg, bank: MemeBank) -> App:
             bank.deposit_message(client, channel, event)
             return
         rest = trig.rest
-        if channel_type == "im" and thread_ts and thread_ts != event.get("ts") and parse_command(rest).name == "search":
+        cmd = parse_command(rest)
+        in_thread = bool(thread_ts) and thread_ts != event.get("ts")
+        if channel_type == "im" and in_thread and cmd.name == "search":
             # Plain words replied under the bot's "Banked #12" DM are tags for #12, not a search.
             number = banked_number_in_thread(client, channel, thread_ts)
             if number:
                 rest = f"tag #{number} {rest}"
+        elif channel_type == "im" and cmd.name == "tag" and cmd.number is None:
+            # "Tag it ..." straight into the DM: the meme is the one the bot last said it banked here.
+            number = banked_number_in_thread(client, channel, thread_ts) if in_thread else latest_banked_in_dm(client, channel)
+            if number:
+                rest = f"tag #{number} {cmd.query}"
         bank.handle_ask(client, channel, event.get("user", ""), rest, thread_ts=thread_ts)
+
+    def banked_numbers(msgs: list[dict]) -> list[int]:
+        return [int(m.group(1)) for msg in msgs if msg.get("user") == bot_user_id or msg.get("bot_id")
+                for m in [BANKED_RE.search(msg.get("text", ""))] if m]
 
     def banked_number_in_thread(client, channel: str, thread_ts: str) -> int | None:
         try:
@@ -67,9 +78,17 @@ def build_app(cfg, bank: MemeBank) -> App:
         except Exception:  # noqa: BLE001
             log.exception("Couldn't read the DM thread")
             return None
-        found = [int(m.group(1)) for msg in msgs if msg.get("user") == bot_user_id or msg.get("bot_id")
-                 for m in [BANKED_RE.search(msg.get("text", ""))] if m]
+        found = banked_numbers(msgs)  # oldest first
         return found[-1] if found else None
+
+    def latest_banked_in_dm(client, channel: str) -> int | None:
+        try:
+            msgs = client.conversations_history(channel=channel, limit=20).get("messages", [])
+        except Exception:  # noqa: BLE001
+            log.exception("Couldn't read the DM")
+            return None
+        found = banked_numbers(msgs)  # newest first
+        return found[0] if found else None
 
     @app.event("reaction_added")
     def on_reaction(event, client):
