@@ -45,15 +45,25 @@ if (-not $appId) { $appId = Invoke-Az ad app create --display-name $AppName --qu
 $principal = Invoke-Az ad sp list --filter "appId eq '$appId'" --query "[0].id" -o tsv
 if (-not $principal) { $principal = Invoke-Az ad sp create --id $appId --query id -o tsv }
 
-Write-Host "== Federated credential: only $Repo's main branch"
-$subject = "repo:${Repo}:ref:refs/heads/main"
-$existing = Invoke-Az ad app federated-credential list --id $appId --query "[?subject=='$subject'].name" -o tsv
-if (-not $existing) {
-    $spec = @{ name = "github-main"; issuer = "https://token.actions.githubusercontent.com"; subject = $subject
-               audiences = @("api://AzureADTokenExchange"); description = "GitHub Actions deploys from main" }
-    $file = New-TemporaryFile
-    $spec | ConvertTo-Json | Set-Content -Path $file -Encoding utf8
-    try { Invoke-Az ad app federated-credential create --id $appId --parameters "@$file" | Out-Null } finally { Remove-Item $file }
+Write-Host "== Federated credentials: only $Repo's main branch"
+# GitHub's token subject names the repo either by name ("repo:owner/name") or, with immutable subjects (the default
+# for newer repos), by name plus numeric IDs ("repo:owner@123/name@456"), which survive renames. Ask GitHub which
+# prefix it uses, and register both forms so a change to that setting doesn't break deploys.
+$prefix = (& gh api "repos/$Repo/actions/oidc/customization/sub" --jq .sub_claim_prefix)
+if ($LASTEXITCODE -ne 0) { throw "Couldn't ask GitHub which token subject $Repo uses (gh api failed)" }
+$subjects = @("repo:${Repo}:ref:refs/heads/main")
+if ($prefix -and "${prefix}:ref:refs/heads/main" -notin $subjects) { $subjects = @("${prefix}:ref:refs/heads/main") + $subjects }
+foreach ($subject in $subjects) {
+    $existing = Invoke-Az ad app federated-credential list --id $appId --query "[?subject=='$subject'].name" -o tsv
+    if (-not $existing) {
+        $name = if ($subject -match "@") { "github-main-ids" } else { "github-main" }
+        $spec = @{ name = $name; issuer = "https://token.actions.githubusercontent.com"; subject = $subject
+                   audiences = @("api://AzureADTokenExchange"); description = "GitHub Actions deploys from main" }
+        $file = New-TemporaryFile
+        $spec | ConvertTo-Json | Set-Content -Path $file -Encoding utf8
+        try { Invoke-Az ad app federated-credential create --id $appId --parameters "@$file" | Out-Null } finally { Remove-Item $file }
+    }
+    Write-Host "   $subject"
 }
 
 Write-Host "== Contributor on $ResourceGroup only"
