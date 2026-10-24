@@ -15,22 +15,23 @@ Because the bank keeps its own copy of every image, a meme survives after Slack'
 
 | You post | The bank does |
 |---|---|
-| an image with "meme bank" anywhere in the message | banks it, reacts :bank:, and replies in a thread with its number and tags. It also DMs whoever banked it the full tag list: reply in that DM thread with more words (comma separated) and they're added as tags |
-| a link whose preview has a picture (e.g. an x.com post), with "meme bank" in the message | banks the preview picture once Slack unfurls the link |
+| an image saying it's for the bank: "a meme for the meme bank", "store this in the meme bank", "add it to the meme bank", or :bank: in the text | banks it, reacts :bank:, and replies in a thread with its number and tags. It also DMs whoever banked it the full tag list: reply `tag it …` there (or just the words, in that DM's thread) to add more |
+| a link whose preview has a picture (e.g. an x.com post), saying it's for the meme bank | banks the preview picture once Slack unfurls the link |
 | a :bank: reaction on any image post | banks that post |
+| an image that only *mentions* the meme bank ("this is why the meme bank is important") | doesn't bank it: DMs the poster "Want me to bank it?". Reply `yes` in that DM's thread (or react :bank: on the post) to bank it, `no` to leave it |
 | a meme that's already in the bank | replies "Already in the vault as #7" and doesn't bank it twice (it catches re-screenshots and resized copies too, while a different meme on the same template, with different text, is banked as new) |
 | `hey meme bank, find me the France meme` | searches by meaning, so a Macron or Eiffel Tower meme still counts as "France" |
 | `hey meme bank, #12` | posts meme 12 |
 | `hey meme bank, random` | dealer's choice |
 | `hey meme bank, stats` | how many memes it has, plus the most common tags |
-| `hey meme bank, forget #12` | takes it out of the vault (only the person who deposited it, or someone listed in ADMIN_USER_IDS). It's hidden, not deleted |
-| `hey meme bank, restore #12` | puts a forgotten meme back, with the same number (same people as `forget`) |
+| `hey meme bank, forget #12` | from a bank manager (ADMIN_USER_IDS): takes it out of the vault (hidden, not deleted). From anyone else: asks the bank managers by DM, and they decide |
+| `hey meme bank, restore #12` | puts a forgotten meme back, with the same number (bank managers only) |
 | `hey meme bank, tag #12 ilhan omar, cabin trip` | adds tags (anyone can). Use it for names and in-jokes: Claude only names people whose names are written in the image or the caption |
 | `hey meme bank, untag #12 cabin trip` | removes a tag (the person who deposited it, or an admin) |
 | `hey meme bank, retag #12` | has Claude tag it again. Tags people added are kept |
 | `hey meme bank` or `hey meme bank, help` | shows the help |
 
-It also responds to "yo/hi/ok meme bank …", "Meme bank: …", an @mention, or a DM, where everything you type is treated as a question. Plain chat that happens to mention the meme bank, like "this is why the meme bank is important", gets ignored unless the message has an image in it.
+It also responds to "yo/hi/ok meme bank …", "Meme bank: …", an @mention, or a DM, where everything you type is treated as a question. Plain chat that happens to mention the meme bank, like "this is why the meme bank is important", gets ignored. If it has an image, the poster gets a DM asking whether to bank it, and nothing is banked unless they say yes. Every meme the bank posts ends with its number and how to tag it or ask for its removal.
 
 ## How it works
 

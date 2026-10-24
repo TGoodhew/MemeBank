@@ -23,15 +23,16 @@ DUPLICATE_DISTANCE = 6  # dHash bits; reposts and re-screenshots land well insid
 # ...but so do different memes on the same template, so a near picture is only a repost if its text matches too
 TEXT_MATCH = 0.9
 MAX_EXTRA_TAGS = 100  # tags people can add to one meme ("tag #12 ...")
+CONFIRM_EVENT = "memebank_confirm_deposit"  # metadata on the "want me to bank it?" DM
 
 HELP = """*The Meme Bank* :bank:
-*Deposit:* post an image with "meme for the meme bank" in the message, react to any image post with :bank:, or DM me an image. I'll keep a copy and tag it.
+*Deposit:* post an image saying it's for the bank ("a meme for the meme bank", "store this in the meme bank", or :bank:), react to any image post with :bank:, or DM me an image. I'll keep a copy and tag it. (Just mentioning the meme bank with a picture gets you a DM asking if you meant it.)
 *Withdraw:* start a message with "hey meme bank," then ask:
 • `hey meme bank, find me the France meme`
 • `hey meme bank, what have you got on socialism?`
 • `hey meme bank, #12`  ·  `random`  ·  `stats`
 • `hey meme bank, tag #12 names, in-jokes` (anyone; `untag #12 word` for the poster)  ·  `retag #12` (Claude again)
-• `hey meme bank, forget #12` (your own deposits; `restore #12` undoes it)
+• `hey meme bank, forget #12` (asks a bank manager to remove it; they decide, and `restore #12` undoes it)
 You can also @mention me, or DM me a question without the "hey meme bank"."""
 
 
@@ -94,6 +95,8 @@ class MemeBank:
         self.dm_tags = dm_tags  # after a new deposit, DM whoever banked it the tags and how to add more
         self._fetch = fetch or images.fetch
         self._deposit_lock = threading.Lock()  # one deposit at a time keeps numbering and dedup simple
+        self._asked: set[tuple[str, str]] = set()  # posts we've already asked their poster about (ask_to_bank)
+        self._asked_lock = threading.Lock()
 
     # ------------------------------------------------------------------ deposits
     def deposit_bytes(self, data: bytes, source_key: str, caption: str = "", posted_by: str = "",
@@ -161,6 +164,46 @@ class MemeBank:
                         self._dm_tags(client, banked_by or message.get("user", ""), r.meme)
         return results
 
+    def ask_to_bank(self, client, channel: str, message: dict) -> bool:
+        """An image that only *mentions* the meme bank: DM the poster to check instead of banking it. The DM carries
+        the post's channel and ts as message metadata, so a "yes" in its thread knows what to bank."""
+        user, ts = message.get("user", ""), message.get("ts", "")
+        if not user.startswith(("U", "W")):
+            return False
+        with self._asked_lock:  # a post and its link preview can arrive at once, on different Bolt threads
+            if (channel, ts) in self._asked:
+                return False
+            self._asked.add((channel, ts))
+        try:
+            banked = any(self.store.find_by_source(r.key) for r in images_in(message, channel))
+        except Exception:  # noqa: BLE001  (storage unreachable: don't ask now, but let a later event try)
+            log.exception("Couldn't check whether %s/%s is banked", channel, ts)
+            with self._asked_lock:
+                self._asked.discard((channel, ts))
+            return False
+        if banked:
+            return False  # already in the vault, nothing to ask (and no need to ask later)
+        payload = {"channel": channel, "ts": ts}
+        if message.get("thread_ts") and message["thread_ts"] != ts:
+            payload["thread_ts"] = message["thread_ts"]  # a reply in a thread: where to look it up
+        post = "your post"
+        try:
+            post = f"<{client.chat_getPermalink(channel=channel, message_ts=ts)['permalink']}|your post>"
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            client.chat_postMessage(
+                channel=user, unfurl_links=False,
+                text=(f"You mentioned the meme bank with a picture in <#{channel}> ({post}). Want me to bank it? "
+                      f"Reply `yes` in this thread, or react :bank: on the post. Otherwise I'll leave it be."),
+                metadata={"event_type": CONFIRM_EVENT, "event_payload": payload})
+        except Exception:  # noqa: BLE001
+            log.exception("Couldn't ask %s about %s/%s", user, channel, ts)
+            with self._asked_lock:
+                self._asked.discard((channel, ts))  # it never arrived, so a later event can try again
+            return False
+        return True
+
     def _tag_hint(self, meme: Meme) -> str:
         return (f"Here are the tags I used:\n_{', '.join(meme.all_tags)}_\n"
                 f"Want to add others? Reply here with `tag it cabin trip, kevin` (or just the words, in this thread), "
@@ -225,28 +268,37 @@ class MemeBank:
         allowed = bool(user) and meme is not None and (user == meme.posted_by or user in self.admins)
         if not meme:
             self._say(client, channel, f"There's no #{n} in the vault.", thread_ts)
-        elif cmd.name == "restore":
+        elif cmd.name == "restore":  # removing and restoring memes is the bank managers' call
             if not meme.withdrawn_at:
                 self._say(client, channel, f"#{n} {meme.title} is already in the vault.", thread_ts)
-            elif allowed:
+            elif user in self.admins:
                 meme.withdrawn_at = ""
                 self.store.put(meme, None)
                 self._say(client, channel, f"Restored: #{n} {meme.title} is back in the vault.", thread_ts)
             else:
-                self._say(client, channel, f"Only whoever deposited #{n} (or a bank manager) can restore it.", thread_ts)
+                self._say(client, channel, f"Only a bank manager can restore #{n}.", thread_ts)
         elif meme.withdrawn_at:
-            self._say(client, channel, f"#{n} was withdrawn from the vault. Whoever deposited it (or a bank manager) "
-                                       f"can `restore #{n}`.", thread_ts)
+            self._say(client, channel, f"#{n} was withdrawn from the vault. A bank manager can `restore #{n}`.", thread_ts)
         elif cmd.name == "get":
             self._post_meme(client, channel, meme, thread_ts)
         elif cmd.name == "forget":
-            if allowed:
+            if user in self.admins:
                 meme.withdrawn_at = _now()
                 self.store.put(meme, None)  # hidden, not deleted: the row and image stay for "restore"
                 self._say(client, channel, f"Withdrawn: #{n} {meme.title} is out of the vault. "
                                            f"`hey meme bank, restore #{n}` puts it back.", thread_ts)
-            else:
-                self._say(client, channel, f"Only whoever deposited #{n} (or a bank manager) can withdraw it.", thread_ts)
+            elif not self.admins:
+                self._say(client, channel, f"There's no bank manager set up to remove #{n} (ADMIN_USER_IDS).", thread_ts)
+            else:  # everyone else asks; a bank manager decides
+                where = f" from <#{channel}>" if channel.startswith(("C", "G")) else ""
+                told = [self._say(client, admin, f"<@{user}> asked to remove *#{n}: {meme.title}*{where}. "
+                                                 f"`hey meme bank, forget #{n}` removes it; otherwise nothing changes.")
+                        for admin in self.admins]
+                if any(told):
+                    self._say(client, channel, f"I've asked a bank manager to remove #{n} {meme.title}.", thread_ts)
+                else:
+                    self._say(client, channel, f"I couldn't reach a bank manager just now, so #{n} is unchanged. "
+                                               f"Try `hey meme bank, forget #{n}` again in a bit.", thread_ts)
         elif cmd.name == "tag":  # anyone can add tags
             words = clean_tags(split_tags(cmd.query))
             new = [t for t in words if t not in meme.all_tags]
@@ -312,7 +364,9 @@ class MemeBank:
 
     def _post_meme(self, client, channel, meme: Meme, thread_ts=None, lead: str = "", extra: str = ""):
         who = f" deposited by <@{meme.posted_by}>" if meme.posted_by.startswith("U") else ""
-        comment = f"{lead + ' ' if lead else ''}*#{meme.number}: {meme.title}*{who}{extra}"
+        n = meme.number
+        how = f"\n_#{n} · add tags: `hey meme bank, tag #{n} …` · ask to remove: `hey meme bank, forget #{n}`_"
+        comment = f"{lead + ' ' if lead else ''}*#{n}: {meme.title}*{who}{extra}{how}"
         try:
             data = self.store.get_image(meme)
             client.files_upload_v2(channel=channel, thread_ts=thread_ts, file=data,
@@ -321,12 +375,18 @@ class MemeBank:
             log.exception("Upload failed for #%s, falling back to a link", meme.number)
             self._say(client, channel, comment + (f"\n{meme.permalink}" if meme.permalink else ""), thread_ts)
 
+    def say(self, client, channel, text, thread_ts=None) -> bool:
+        return self._say(client, channel, text, thread_ts)
+
     @staticmethod
-    def _say(client, channel, text, thread_ts=None):
+    def _say(client, channel, text, thread_ts=None) -> bool:
+        """Post a message; False (and logged) if Slack refused it."""
         try:
             client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts, unfurl_links=False)
+            return True
         except Exception:  # noqa: BLE001
             log.exception("Couldn't post to %s", channel)
+            return False
 
 
 def local_source_key(data: bytes) -> str:

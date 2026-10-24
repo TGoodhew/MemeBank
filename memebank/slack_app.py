@@ -6,12 +6,16 @@ import re
 
 from slack_bolt import App
 
-from .core import MemeBank, images_in
-from .triggers import BANK_RE, classify, parse_command
+from .core import CONFIRM_EVENT, MemeBank, images_in
+from .triggers import NEGATION_RE, classify, parse_command
 
 log = logging.getLogger(__name__)
 
 BANKED_RE = re.compile(r"Banked (?:as )?\*#(\d+)")  # the bot's own "Banked as *#12: ..." messages
+# Answers to "want me to bank it?". "please" alone isn't consent ("please don't"), and a no is checked first.
+YES_RE = re.compile(r"\s*(?:please\s+)?(?:y|yes|yep|yeah|yup|sure|ok|okay|bank it|store it|do it|go ahead)\b", re.I)
+# A refusal anywhere in the reply wins: "okay, don't bank it" and "sure, but do not store it" are noes.
+NO_RE = re.compile(r"^\s*n\b|\b(?:no|nope|nah|not|don'?t|do not|never|leave it|skip it|stop)\b", re.I)
 
 IGNORED_SUBTYPES = {"bot_message", "message_deleted", "channel_join", "channel_leave", "channel_topic",
                     "channel_purpose", "channel_name", "pinned_item", "unpinned_item", "tombstone"}
@@ -36,26 +40,34 @@ def build_app(cfg, bank: MemeBank) -> App:
         if subtype == "message_changed":
             # Link previews (unfurls) arrive as an edit a moment after the post; bank their picture then.
             msg = event.get("message") or {}
-            if msg.get("bot_id") or not msg.get("attachments"):
+            if msg.get("bot_id") or not msg.get("attachments") or not images_in(msg, channel):
                 return
-            if BANK_RE.search(msg.get("text", "")) and images_in(msg, channel):
+            trig = classify(msg.get("text", ""), True, bot_user_id, is_dm=channel_type == "im")
+            if trig and trig.kind == "bank":
                 bank.deposit_message(client, channel, msg)
+            elif trig and trig.kind == "confirm":
+                bank.ask_to_bank(client, channel, msg)
             return
 
         if subtype in IGNORED_SUBTYPES or event.get("bot_id") or event.get("user") == bot_user_id:
             return
 
         text = event.get("text", "")
+        thread_ts = event.get("thread_ts")
+        in_thread = bool(thread_ts) and thread_ts != event.get("ts")
+        if channel_type == "im" and in_thread and not images_in(event, channel) and answer_confirm(client, event):
+            return
         trig = classify(text, bool(images_in(event, channel)), bot_user_id, is_dm=channel_type == "im")
         if trig is None:
             return
-        thread_ts = event.get("thread_ts")
         if trig.kind == "bank":
             bank.deposit_message(client, channel, event)
             return
+        if trig.kind == "confirm":
+            bank.ask_to_bank(client, channel, event)
+            return
         rest = trig.rest
         cmd = parse_command(rest)
-        in_thread = bool(thread_ts) and thread_ts != event.get("ts")
         if channel_type == "im" and in_thread and cmd.name == "search":
             # Plain words replied under the bot's "Banked #12" DM are tags for #12, not a search.
             number = banked_number_in_thread(client, channel, thread_ts)
@@ -67,6 +79,67 @@ def build_app(cfg, bank: MemeBank) -> App:
             if number:
                 rest = f"tag #{number} {cmd.query}"
         bank.handle_ask(client, channel, event.get("user", ""), rest, thread_ts=thread_ts)
+
+    def answer_confirm(client, event) -> bool:
+        """A reply in the thread of a "want me to bank it?" DM. True if it was one (and has been dealt with)."""
+        channel, thread_ts, text = event["channel"], event["thread_ts"], event.get("text", "")
+        plain = text.replace("’", "'").replace("‘", "'")
+        no = NO_RE.search(plain) or NEGATION_RE.search(plain)  # "okay, I wouldn't bank it" is a no too
+        yes = not no and YES_RE.match(plain)
+        if not (yes or no):
+            return False
+        try:
+            msgs = client.conversations_replies(channel=channel, ts=thread_ts, limit=1,
+                                                include_all_metadata=True).get("messages", [])
+        except Exception:  # noqa: BLE001
+            log.exception("Couldn't read the DM thread")
+            return False
+        root = msgs[0] if msgs else {}
+        if root.get("user") != bot_user_id:
+            return False  # only trust the question if the bot itself asked it
+        meta = root.get("metadata") or {}
+        if meta.get("event_type") != CONFIRM_EVENT:
+            return False
+        where = meta.get("event_payload") or {}
+        if no:  # but someone may have banked it since (a :bank: reaction), so don't claim it's left out if it isn't
+            post = fetch_message(client, where.get("channel", ""), where.get("ts", ""), where.get("thread_ts"))
+            refs = images_in(post, where["channel"]) if post else []
+            found = [m for m in (bank.store.find_by_source(r.key) for r in refs) if m and not m.withdrawn_at]
+            if found:
+                n = found[0].number
+                bank.say(client, channel, f"OK, I won't bank it. It's already in the vault as #{n}, though; only a bank "
+                                          f"manager can remove it (`hey meme bank, forget #{n}` asks one).", thread_ts)
+            else:
+                bank.say(client, channel, "OK, I've left it out of the vault.", thread_ts)
+            return True
+        post = fetch_message(client, where.get("channel", ""), where.get("ts", ""), where.get("thread_ts"))
+        if not post:
+            bank.say(client, channel, "I couldn't find that post any more, so there's nothing to bank.", thread_ts)
+            return True
+        results = bank.deposit_message(client, where["channel"], post, banked_by=event.get("user", ""))
+        done = [r for r in results if r.status in ("new", "duplicate", "already")]
+        bank.say(client, channel, (f"Done: it's #{done[0].meme.number} in the vault." if done
+                                   else "I couldn't bank that one (see the post's thread)."), thread_ts)
+        return True
+
+    def fetch_message(client, channel: str, ts: str, thread_ts: str | None = None) -> dict | None:
+        """One message by channel and ts, whether it's a top-level post or a reply in a thread (pass the thread's ts
+        when it's known; Slack also finds a reply from its own ts, which is what a reaction gives us)."""
+        if not (channel and ts):
+            return None
+        try:
+            msgs = []
+            if not thread_ts:
+                resp = client.conversations_history(channel=channel, latest=ts, oldest=ts, inclusive=True, limit=1)
+                msgs = [m for m in resp.get("messages", []) if m.get("ts") == ts]
+            if not msgs:  # history only has top-level posts; a reply in a thread has to be looked up as one
+                resp = client.conversations_replies(channel=channel, ts=thread_ts or ts, latest=ts, oldest=ts,
+                                                    inclusive=True, limit=10)
+                msgs = [m for m in resp.get("messages", []) if m.get("ts") == ts]
+        except Exception:  # noqa: BLE001
+            log.exception("Couldn't load message %s/%s", channel, ts)
+            return None
+        return msgs[0] if msgs and not msgs[0].get("bot_id") else None
 
     def banked_numbers(msgs: list[dict]) -> list[int]:
         return [int(m.group(1)) for msg in msgs if msg.get("user") == bot_user_id or msg.get("bot_id")
@@ -103,17 +176,9 @@ def build_app(cfg, bank: MemeBank) -> App:
         channel, ts = item.get("channel", ""), item.get("ts", "")
         if item.get("type") != "message" or not channel_ok(channel):
             return
-        try:
-            resp = client.conversations_history(channel=channel, latest=ts, oldest=ts, inclusive=True, limit=1)
-            msgs = [m for m in resp.get("messages", []) if m.get("ts") == ts]
-            if not msgs:  # history only has top-level posts; a reply in a thread has to be looked up as one
-                resp = client.conversations_replies(channel=channel, ts=ts, latest=ts, oldest=ts, inclusive=True, limit=10)
-                msgs = [m for m in resp.get("messages", []) if m.get("ts") == ts]
-        except Exception:  # noqa: BLE001
-            log.exception("Couldn't load the reacted-to message")
-            return
-        if msgs and not msgs[0].get("bot_id"):
-            bank.deposit_message(client, channel, msgs[0], banked_by=event.get("user", ""))
+        msg = fetch_message(client, channel, ts)
+        if msg:
+            bank.deposit_message(client, channel, msg, banked_by=event.get("user", ""))
 
     @app.event("app_mention")
     def _ignore_mentions():  # mentions are handled as ordinary messages above

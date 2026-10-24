@@ -5,6 +5,46 @@ import re
 from dataclasses import dataclass
 
 BANK_RE = re.compile(r"\bmeme[\s-]?bank\b", re.I)
+# Saying it's a deposit: "a meme for the meme bank", "store this in the meme bank", "needs to be added again to
+# the meme bank", "meme bank deposit", or the :bank: emoji. "in/to the meme bank" needs a verb that puts something
+# there, so "is this already in the meme bank?" isn't one. Merely mentioning the meme bank asks first ("confirm").
+_PUT = (r"(?:add|adding|added|put|putting|store|storing|stored|save|saving|saved|stick|file|filed|deposit|deposited"
+        r"|bank|banked|throw|toss|send|goes|go|going)")
+DEPOSIT_RE = re.compile(
+    rf"\b{_PUT}\b(?:\s+[^\s.!?]+){{0,3}}?\s+(?:in|into|to|onto)\s+(?:the\s+|our\s+)?meme[\s-]?bank\b"
+    r"|\bfor\s+(?:the\s+|our\s+)?meme[\s-]?bank\b"
+    r"|\bmeme[\s-]?bank\s+(?:deposit|submission|entry)\b"
+    r"|:bank:",
+    re.I,
+)
+
+# Any negation at all (every n't contraction, "not", "never", "no"...), and sentences that ask rather than tell. The
+# rule is deliberately cautious: when in doubt it isn't a deposit, and the poster just gets asked.
+NEGATION_RE = re.compile(r"\b(?:\w+n't|not|never|no|nope|nobody|nothing|without|dont|doesnt|didnt|wont|wouldnt"
+                         r"|shouldnt|cant|isnt|arent|wasnt)\b", re.I)
+_QUESTION_START = re.compile(r"^\W*(?:did|does|do|has|have|had|is|was|were|are|am|should|shall|can|could|would|will"
+                             r"|may|might|must|why|when|where|who|whom|what|which|how|wonder)\b", re.I)
+
+
+def says_deposit(text: str) -> bool:
+    """Deposit wording in a sentence that tells rather than asks and has no negation anywhere in it. "Please don't add
+    this to the meme bank", "A meme for the meme bank, but don't bank it yet" and "Did I add this to the meme bank"
+    (with or without the ?) aren't deposits: they go to the ask-first path."""
+    text = (text or "").replace("’", "'").replace("‘", "'")  # phones type curly apostrophes
+    if ":bank:" in text:
+        return True  # the emoji is as explicit as the :bank: reaction, whatever the words around it say
+    text = re.sub(r"<[^>]*>|https?://\S+", " ", text)  # links (<url|label>, <@user>) have dots that aren't full stops
+    text = re.sub(r"\s+", " ", text)  # a line break isn't the end of a sentence ("This is not\nfor the meme bank")
+    for sentence in re.findall(r"[^.!?]+[.!?]*", text):  # each sentence on its own: "Don't add that. Store this ..."
+        if not DEPOSIT_RE.search(sentence):
+            continue
+        if sentence.rstrip().endswith("?") or _QUESTION_START.search(sentence):
+            continue  # asks about the meme bank
+        if NEGATION_RE.search(sentence):
+            continue  # negated somewhere in the same sentence
+        return True
+    return False
+
 
 _GREETING = r"(?:hey|hi|hello|yo|oi|ok|okay|g'?day|dear)"
 # "hey meme bank, find me the France meme" / "yo memebank what have you got on cats"
@@ -18,7 +58,7 @@ MENTION_RE = re.compile(r"<@([A-Z0-9]+)(?:\|[^>]*)?>")
 
 @dataclass
 class Trigger:
-    kind: str  # "bank" or "ask"
+    kind: str  # "bank", "confirm" (an image that only mentions the meme bank: ask the poster first) or "ask"
     rest: str = ""
 
 
@@ -30,10 +70,10 @@ def classify(text: str, has_images: bool, bot_user_id: str | None = None, is_dm:
     text = text or ""
     mentioned = bool(bot_user_id) and f"<@{bot_user_id}" in text
 
-    if has_images and (BANK_RE.search(text) or mentioned):
+    if has_images and (says_deposit(text) or mentioned or is_dm):
         return Trigger("bank")
     if has_images:
-        return Trigger("bank") if is_dm else None
+        return Trigger("confirm") if BANK_RE.search(text) else None
 
     if mentioned:
         rest = strip_mentions(text.replace(f"<@{bot_user_id}>", " "))
