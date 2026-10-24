@@ -354,6 +354,21 @@ def test_export_writes_catalogue_and_images_including_withdrawn(setup, tmp_path)
     assert export(store, str(out))["kept"] == 2  # a re-run only fetches what's new
 
 
+def test_failed_export_leaves_no_stub_and_a_retry_completes_it(setup, tmp_path, monkeypatch):
+    from scripts.export import export
+
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    real = store.get_image
+    monkeypatch.setattr(store, "get_image", lambda m: (_ for _ in ()).throw(OSError("network")) if m.number == 2 else real(m))
+    out = tmp_path / "backup"  # not tmp_path itself: that's where the LocalStore keeps its own images
+    with pytest.raises(OSError):
+        export(store, str(out))
+    assert sorted(p.name for p in (out / "images").iterdir()) == [store.get(1).blob_name]  # no empty #2, no .part
+    monkeypatch.setattr(store, "get_image", real)
+    assert export(store, str(out)) == {"memes": 2, "withdrawn": 0, "downloaded": 1, "kept": 1}
+
+
 def test_empty_vault_and_stats_and_help(setup):
     bank, store, tagger, client = setup
     bank.handle_ask(client, "CGEN", "U", "random")

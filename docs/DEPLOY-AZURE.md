@@ -229,9 +229,15 @@ This deletes everything, **including the stored memes**, so back them up first. 
 
 ```powershell
 python -m scripts.export --env-file .env.azure --out memebank-backup   # the catalogue (memes.json) plus every image
-$sa = az storage account list -g rg-memebank --query "[0].name" -o tsv
-az lock delete --name keep-the-memes -g rg-memebank --resource $sa --resource-type Microsoft.Storage/storageAccounts
-az group delete -n rg-memebank
+if ($LASTEXITCODE -eq 0) {
+    $sa = az storage account list -g rg-memebank --query "[0].name" -o tsv
+    az lock delete --name keep-the-memes -g rg-memebank --resource $sa --resource-type Microsoft.Storage/storageAccounts
+    az group delete -n rg-memebank
+} else {
+    Write-Warning "The export failed, so nothing was removed. Fix it and run this again."
+}
 ```
+
+Paste the whole block at once. The lock and the resource group are only removed if the export succeeded.
 
 Afterwards, delete the Slack app at api.slack.com/apps and revoke the Anthropic key.

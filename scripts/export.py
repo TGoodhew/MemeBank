@@ -22,11 +22,13 @@ def export(store, out: str) -> dict:
     counts = {"memes": len(memes), "withdrawn": sum(1 for m in memes if m.withdrawn_at), "downloaded": 0, "kept": 0}
     for m in memes:
         path = os.path.join(out, "images", m.blob_name)
-        if os.path.exists(path):
+        if os.path.exists(path) and os.path.getsize(path) > 0:
             counts["kept"] += 1
             continue
-        with open(path, "wb") as f:
-            f.write(store.get_image(m))
+        data = store.get_image(m)
+        with open(path + ".part", "wb") as f:  # renamed only once complete, so a failed run can't leave a stub
+            f.write(data)
+        os.replace(path + ".part", path)
         counts["downloaded"] += 1
     with open(os.path.join(out, "memes.json"), "w", encoding="utf-8") as f:
         json.dump([asdict(m) for m in memes], f, ensure_ascii=False, indent=2)
