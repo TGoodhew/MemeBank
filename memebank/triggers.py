@@ -118,10 +118,30 @@ _FILLER = re.compile(
 )
 
 
+# Questions about the bot itself, however they're put: "can you explain how you work to everyone?", "how do I use
+# you", "what can you do". "help" alone counts, but "help me find the France meme" is a search.
+_ME = r"(?:you|yourself|the\s+(?:meme[\s-]?bank|bot))"
+_SELF = r"(?:you|this|it|the\s+(?:meme[\s-]?bank|bot))"  # "how ___ works"
+_PEOPLE = r"(?:me|us|everyone|everybody|people|all|the\s+(?:channel|group|team|gang))"
+_HELP_RE = re.compile(
+    r"(?:(?:so|ok|okay|and|then|well)[\s,]+)?(?:(?:can|could|would|will)\s+you\s+)?(?:please\s+)?(?:"
+    r"help|commands|usage|instructions|menu"
+    rf"|(?:explain|describe|introduce|tell\s+{_PEOPLE})(?:\s+(?:to\s+)?{_PEOPLE})?\s+"
+    rf"(?:how\s+{_SELF}\s+works?|how\s+to\s+use\s+{_SELF}|(?:about\s+)?{_ME}|what\s+you\s+do)"
+    rf"|how\s+(?:do|does|can|should)\s+{_SELF}\s+work"
+    rf"|how\s+(?:do|does|can|should)\s+(?:i|we|you|people|everyone)\s+use\s+{_SELF}"
+    rf"|how\s+{_SELF}\s+works?|how\s+to\s+use\s+{_SELF}"
+    r"|what\s+(?:can|do|does)\s+(?:you|it|the\s+meme[\s-]?bank)\s+do"
+    r"|what\s+(?:are\s+)?(?:your|the)\s+commands|(?:who|what)\s+are\s+you"
+    rf")(?:\s+(?:to|for|with)\s+{_PEOPLE}|\s+(?:again|please|here|now))*",
+    re.I,
+)
+
+
 def parse_command(rest: str) -> Command:
     raw = (rest or "").strip().rstrip("?!. ")
     low = raw.lower()
-    if low in ("", "help", "commands", "what can you do", "how do you work", "how does this work"):
+    if not low or _HELP_RE.fullmatch(low):
         return Command("help")
     if re.fullmatch(r"(?:give\s+me\s+|show\s+me\s+)?(?:a\s+)?(?:random(?:\s+(?:one|meme))?|surprise\s+me|dealer'?s\s+choice|anything)", low):
         return Command("random")
