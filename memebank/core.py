@@ -24,13 +24,14 @@ DUPLICATE_DISTANCE = 6  # dHash bits; reposts and re-screenshots land well insid
 TEXT_MATCH = 0.9
 
 HELP = """*The Meme Bank* :bank:
-*Deposit:* post an image with "meme for the meme bank" in the message (or react to any image post with :bank:). I'll keep a copy and tag it.
+*Deposit:* post an image with "meme for the meme bank" in the message, react to any image post with :bank:, or DM me an image. I'll keep a copy and tag it.
 *Withdraw:* start a message with "hey meme bank," then ask:
 • `hey meme bank, find me the France meme`
 • `hey meme bank, what have you got on socialism?`
 • `hey meme bank, #12`  ·  `random`  ·  `stats`
+• `hey meme bank, retag #12` (if the tags missed something)
 • `hey meme bank, forget #12` (your own deposits)
-You can also @mention me or DM me."""
+You can also @mention me, or DM me a question without the "hey meme bank"."""
 
 
 @dataclass

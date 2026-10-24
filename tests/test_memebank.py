@@ -297,7 +297,8 @@ def test_empty_vault_and_stats_and_help(setup):
     bank.handle_ask(client, "CGEN", "U", "stats")
     assert "*2 memes*" in client.named("chat_postMessage")[-1]["text"]
     bank.handle_ask(client, "CGEN", "U", "help")
-    assert "Deposit" in client.named("chat_postMessage")[-1]["text"]
+    help_text = client.named("chat_postMessage")[-1]["text"]
+    assert "Deposit" in help_text and "retag #12" in help_text and "DM me an image" in help_text
 
 
 def test_upload_failure_falls_back_to_permalink(setup):
