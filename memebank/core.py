@@ -15,7 +15,7 @@ from . import images
 from .search import search
 from .store import Meme
 from .tagger import Tags, clean_tags
-from .triggers import Command, parse_command
+from .triggers import Command, parse_command, split_tags
 
 log = logging.getLogger(__name__)
 
@@ -163,8 +163,8 @@ class MemeBank:
 
     def _tag_hint(self, meme: Meme) -> str:
         return (f"Here are the tags I used:\n_{', '.join(meme.all_tags)}_\n"
-                f"Want to add others? Reply in this thread with them, comma separated, or from anywhere: "
-                f"`hey meme bank, tag #{meme.number} names, in-jokes`")
+                f"Want to add others? Reply here with `tag it cabin trip, kevin` (or just the words, in this thread), "
+                f"or from anywhere: `hey meme bank, tag #{meme.number} names, in-jokes`")
 
     def _dm_tags(self, client, user: str, meme: Meme) -> None:
         if user.startswith(("U", "W")):  # a Slack person, not a bot or a local import
@@ -204,6 +204,8 @@ class MemeBank:
         memes = self.store.all()
         if cmd.name == "help":
             self._say(client, channel, HELP, thread_ts)
+        elif cmd.name == "tag" and cmd.number is None:  # "tag it ..." outside a DM, where there's no meme to infer
+            self._say(client, channel, "Which meme? Say `hey meme bank, tag #12 words, more words`.", thread_ts)
         elif cmd.name in ("get", "forget", "restore", "retag", "tag", "untag"):
             self._numbered(client, channel, user, cmd, thread_ts)
         elif not memes:
@@ -246,23 +248,25 @@ class MemeBank:
             else:
                 self._say(client, channel, f"Only whoever deposited #{n} (or a bank manager) can withdraw it.", thread_ts)
         elif cmd.name == "tag":  # anyone can add tags
-            words = clean_tags(cmd.query.split(","))
+            words = clean_tags(split_tags(cmd.query))
             new = [t for t in words if t not in meme.all_tags]
+            had = [t for t in words if t in meme.all_tags]
             added = new[:max(0, MAX_EXTRA_TAGS - len(meme.extra_tags))]
             full = f" ({len(new) - len(added)} skipped: #{n} has the most added tags it can hold)" if len(added) < len(new) else ""
+            already = f" (already had: {', '.join(had)})" if had else ""
             if not words:
                 self._say(client, channel, f"Give me some words to tag #{n} with, comma separated.", thread_ts)
             elif added:
                 meme.extra_tags = meme.extra_tags + added  # already cleaned and new, so no re-clean (it would cap at 40)
                 self.store.put(meme, None)
-                self._say(client, channel, f"Tagged *#{n}: {meme.title}* with _{', '.join(added)}_{full}\n"
+                self._say(client, channel, f"Tagged *#{n}: {meme.title}* with _{', '.join(added)}_{already}{full}\n"
                                            f"All tags: _{', '.join(meme.all_tags)}_", thread_ts)
             elif new:
                 self._say(client, channel, f"#{n} can't take more added tags{full}.", thread_ts)
             else:
                 self._say(client, channel, f"#{n} already has those tags.", thread_ts)
         elif cmd.name == "untag":
-            words = clean_tags(cmd.query.split(","))
+            words = clean_tags(split_tags(cmd.query))
             removed = [t for t in words if t in meme.all_tags]
             if not allowed:
                 self._say(client, channel, f"Only whoever deposited #{n} (or a bank manager) can remove its tags.", thread_ts)
