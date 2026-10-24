@@ -49,7 +49,8 @@ Write-Host "== Federated credentials: only $Repo's main branch"
 # GitHub's token subject names the repo either by name ("repo:owner/name") or, with immutable subjects (the default
 # for newer repos), by name plus numeric IDs ("repo:owner@123/name@456"), which survive renames. Ask GitHub which
 # prefix it uses, and register both forms so a change to that setting doesn't break deploys.
-$prefix = (& gh api "repos/$Repo/actions/oidc/customization/sub" --jq .sub_claim_prefix 2>$null)
+$prefix = (& gh api "repos/$Repo/actions/oidc/customization/sub" --jq .sub_claim_prefix)
+if ($LASTEXITCODE -ne 0) { throw "Couldn't ask GitHub which token subject $Repo uses (gh api failed)" }
 $subjects = @("repo:${Repo}:ref:refs/heads/main")
 if ($prefix -and "${prefix}:ref:refs/heads/main" -notin $subjects) { $subjects = @("${prefix}:ref:refs/heads/main") + $subjects }
 foreach ($subject in $subjects) {
