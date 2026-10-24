@@ -158,7 +158,8 @@ def test_yes_in_the_confirm_dm_banks_the_original_post_and_no_leaves_it(app_and_
     assert ("DTONY", "OK, I've left it out of the vault.", "50.0") in bank.said and len(bank.deposits) == 1
 
 
-@pytest.mark.parametrize("answer", ["please don't", "please leave it out", "do not", "no thanks"])
+@pytest.mark.parametrize("answer", ["please don't", "please leave it out", "do not", "no thanks", "okay, don't bank it",
+                                    "sure, but do not store it", "please don’t"])
 def test_polite_refusals_are_refusals(app_and_bank, answer):
     from memebank.core import CONFIRM_EVENT
 

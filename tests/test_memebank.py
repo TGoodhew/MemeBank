@@ -123,6 +123,11 @@ def setup(tmp_path):
     ("This isn't for the meme bank", True, False, ("confirm", "")),
     ("Not for the meme bank. Just funny", True, False, ("confirm", "")),
     ("Don't laugh. A meme for the meme bank", True, False, ("bank", "")),  # the negation is in another sentence
+    ("Did I add this to the meme bank?", True, False, ("confirm", "")),  # a question about an earlier deposit
+    ("Has this been added to the meme bank?", True, False, ("confirm", "")),
+    ("Please don’t add this to the meme bank", True, False, ("confirm", "")),  # curly apostrophe, as phones type it
+    ("This isn’t for the meme bank", True, False, ("confirm", "")),
+    ("A meme for the meme bank <https://x.com/a/status/1|x.com/a/status/1>", True, False, ("bank", "")),  # dots in a URL
     ("A meme for the meme bank <@U6UTZEXAB|kevin>", False, False, None),  # link not unfurled yet: not a question
     ("This is why the meme bank is important", False, False, None),
     ("just a cat picture", True, False, None),

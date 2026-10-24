@@ -47,12 +47,13 @@ def test_candidates_are_peoples_meme_bank_posts_with_images_oldest_first():
         {**slack_msg("4.0", "meme bank", "F2"), "bot_id": "B1"},     # the bot's own post
         slack_msg("3.0", "just a picture", "F2"),                     # no "meme bank"
         slack_msg("2.0", "the meme bank is great"),                   # no image
+        slack_msg("1.8", "Has this been added to the meme bank?", "F1"),  # a question: listed, not banked
         slack_msg("1.7", "Please don't add this to the meme bank", "F1"),  # refused: listed, not banked
         slack_msg("1.5", "This needs to be added again to the meme bank", "F1"),
         slack_msg("1.0", "Did I post this as a meme bank image", "F1"),  # only mentions it
     ]
     assert [m["ts"] for m in backfill.candidates(newest_first, "CGEN")] == ["1.5", "5.0"]
-    assert [m["ts"] for m in backfill.mentions_only(newest_first, "CGEN")] == ["1.0", "1.7"]  # listed, not banked
+    assert [m["ts"] for m in backfill.mentions_only(newest_first, "CGEN")] == ["1.0", "1.7", "1.8"]  # listed, not banked
 
 
 def test_since_is_utc_midnight_and_blank_means_everything():

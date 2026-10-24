@@ -14,7 +14,8 @@ log = logging.getLogger(__name__)
 BANKED_RE = re.compile(r"Banked (?:as )?\*#(\d+)")  # the bot's own "Banked as *#12: ..." messages
 # Answers to "want me to bank it?". "please" alone isn't consent ("please don't"), and a no is checked first.
 YES_RE = re.compile(r"\s*(?:please\s+)?(?:y|yes|yep|yeah|yup|sure|ok|okay|bank it|store it|do it|go ahead)\b", re.I)
-NO_RE = re.compile(r"\s*(?:please\s+)?(?:n|no|nope|nah|don'?t|do not|leave it|skip it|no thanks)\b", re.I)
+# A refusal anywhere in the reply wins: "okay, don't bank it" and "sure, but do not store it" are noes.
+NO_RE = re.compile(r"^\s*n\b|\b(?:no|nope|nah|not|don'?t|do not|never|leave it|skip it|stop)\b", re.I)
 
 IGNORED_SUBTYPES = {"bot_message", "message_deleted", "channel_join", "channel_leave", "channel_topic",
                     "channel_purpose", "channel_name", "pinned_item", "unpinned_item", "tombstone"}
@@ -82,8 +83,9 @@ def build_app(cfg, bank: MemeBank) -> App:
     def answer_confirm(client, event) -> bool:
         """A reply in the thread of a "want me to bank it?" DM. True if it was one (and has been dealt with)."""
         channel, thread_ts, text = event["channel"], event["thread_ts"], event.get("text", "")
-        no = NO_RE.match(text)
-        yes = not no and YES_RE.match(text)
+        plain = text.replace("’", "'").replace("‘", "'")
+        no = NO_RE.search(plain)
+        yes = not no and YES_RE.match(plain)
         if not (yes or no):
             return False
         try:

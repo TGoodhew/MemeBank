@@ -23,12 +23,17 @@ _NEGATION = re.compile(r"\b(?:not|don'?t|do\s+not|isn'?t|aren'?t|wasn'?t|never|n
 
 
 def says_deposit(text: str) -> bool:
-    """Deposit wording that isn't negated in its own sentence: "Please don't add this to the meme bank" and "This
-    isn't for the meme bank" aren't deposits (they go to the ask-first path instead)."""
-    for m in DEPOSIT_RE.finditer(text or ""):
-        sentence_before = re.split(r"[.!?\n]", text[:m.start()])[-1][-40:]
-        if not _NEGATION.search(sentence_before):
-            return True
+    """Deposit wording that's an instruction, not a refusal or a question: "Please don't add this to the meme bank",
+    "This isn't for the meme bank" and "Did I add this to the meme bank?" aren't deposits (they ask first)."""
+    text = (text or "").replace("’", "'").replace("‘", "'")  # phones type curly apostrophes
+    for m in DEPOSIT_RE.finditer(text):
+        start = max(text.rfind(c, 0, m.start()) for c in ".!?\n") + 1
+        ends = [i for i in (text.find(c, m.end()) for c in ".!?\n") if i != -1]
+        if ends and text[min(ends)] == "?":
+            continue  # a question about the meme bank
+        if _NEGATION.search(text[start:m.start()][-40:]):
+            continue  # negated earlier in the same sentence
+        return True
     return False
 
 
