@@ -19,6 +19,36 @@ from memebank.tagger import ClaudeTagger
 from memebank.triggers import BANK_RE
 
 
+def since_to_oldest(since: str) -> str:
+    """--since YYYY-MM-DD (UTC midnight) as the Slack "oldest" timestamp; "0" means everything."""
+    return str(datetime.strptime(since, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp()) if since else "0"
+
+
+def read_history(client, channel: str, oldest: str = "0") -> list[dict]:
+    messages, cursor = [], None
+    while True:
+        resp = client.conversations_history(channel=channel, oldest=oldest, limit=200, cursor=cursor)
+        messages += resp["messages"]
+        cursor = (resp.get("response_metadata") or {}).get("next_cursor")
+        if not cursor:
+            return messages
+
+
+def candidates(messages: list[dict], channel: str) -> list[dict]:
+    """People's meme-bank posts with an image, oldest first so numbers follow posting order."""
+    return [m for m in reversed(messages)  # Slack returns newest first
+            if not m.get("bot_id") and BANK_RE.search(m.get("text", "")) and images_in(m, channel)]
+
+
+def bank_all(bank, client, channel: str, posts: list[dict], ack: bool = False) -> dict:
+    counts = {"new": 0, "already": 0, "duplicate": 0, "withdrawn": 0}
+    for m in posts:
+        for d in bank.deposit_message(client, channel, m, acknowledge=ack):
+            counts[d.status] += 1
+            print(f"  {d.status:9} #{d.meme.number} {d.meme.title}")
+    return counts
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--channel", required=True, help="channel ID, e.g. C6UTZF23Z")
@@ -33,34 +63,19 @@ def main() -> None:
     load_env(args.env_file)
     cfg = Config.from_env()
     client = WebClient(token=cfg.slack_bot_token)
-    oldest = "0"
-    if args.since:
-        oldest = str(datetime.strptime(args.since, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
-
-    messages, cursor = [], None
-    while True:
-        resp = client.conversations_history(channel=args.channel, oldest=oldest, limit=200, cursor=cursor)
-        messages += resp["messages"]
-        cursor = (resp.get("response_metadata") or {}).get("next_cursor")
-        if not cursor:
-            break
-    candidates = [m for m in reversed(messages)  # oldest first, so numbers follow posting order
-                  if not m.get("bot_id") and BANK_RE.search(m.get("text", "")) and images_in(m, args.channel)]
-    print(f"{len(messages)} messages read, {len(candidates)} meme-bank posts with images")
+    messages = read_history(client, args.channel, since_to_oldest(args.since))
+    posts = candidates(messages, args.channel)
+    print(f"{len(messages)} messages read, {len(posts)} meme-bank posts with images")
 
     if args.dry_run:
-        for m in candidates:
+        for m in posts:
             when = datetime.fromtimestamp(float(m["ts"]), timezone.utc).strftime("%Y-%m-%d")
             print(f"  {when}  {m.get('text', '')[:70]}")
         return
 
     bank = MemeBank(make_store(cfg), ClaudeTagger(cfg.anthropic_api_key, cfg.tag_model, cfg.search_model),
                     cfg.slack_bot_token, cfg.admin_user_ids, ack_mode=cfg.ack_mode)
-    counts = {"new": 0, "already": 0, "duplicate": 0, "withdrawn": 0}
-    for m in candidates:
-        for d in bank.deposit_message(client, args.channel, m, acknowledge=args.ack):
-            counts[d.status] += 1
-            print(f"  {d.status:9} #{d.meme.number} {d.meme.title}")
+    counts = bank_all(bank, client, args.channel, posts, ack=args.ack)
     print(f"Done: {counts['new']} banked, {counts['already']} already in, {counts['duplicate']} duplicates skipped, "
           f"{counts['withdrawn']} withdrawn (left out)")
 
