@@ -156,7 +156,7 @@ Look for `Meme Bank open for business (azure storage, 0 memes)`. Press Ctrl+C to
 .\deploy\setup-github-deploy.ps1
 ```
 
-Do this in your own copy of the repo (a fork or a clone pushed to your account): the Deploy workflow deploys to whichever Azure subscription the repo's variables point at. It creates an app registration that only that repo's `main` branch can sign in as (OIDC, so no Azure secret is stored in GitHub), gives it Contributor on `rg-memebank` only, and sets the repo variables the Deploy workflow reads. From then on, merging to `main` ships code (see §9).
+Do this in your own copy of the repo (a fork or a clone pushed to your account): the Deploy workflow deploys to whichever Azure subscription the repo's secrets point at. It creates an app registration that only that repo's `main` branch can sign in as (OIDC, so no Azure secret is stored in GitHub), gives it Contributor on `rg-memebank` only, and stores the IDs the Deploy workflow reads as repo secrets (masked in its logs). From then on, merging to `main` ships code (see §9).
 
 ---
 
