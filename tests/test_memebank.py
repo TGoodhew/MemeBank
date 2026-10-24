@@ -200,6 +200,11 @@ def test_repost_with_text_is_caught_despite_small_transcription_differences(setu
     ("SOCIALISM WORKS ON PAPER", "WHEN THE BUILD PASSES", False),
     ("SOCIALISM", "CAPITALISM", False),
     ("SOCIALISM WORKS ON PAPER", "", False),
+    ("今天不上班", "明天去旅行", False),  # non-Latin text isn't stripped away
+    ("今天不上班", "", False),
+    ("ÇA MARCHE SUR LE PAPIER", "ça marche sur le papier.", True),  # case folds for accented letters too
+    (" ".join(["build passed all checks for today"] * 8),
+     "bui1d" + " ".join(["build passed all checks for today"] * 8)[5:], True),  # long text, one misread
 ])
 def test_same_text(a, b, same):
     assert same_text(a, b) is same

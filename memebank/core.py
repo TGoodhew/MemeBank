@@ -53,10 +53,11 @@ def _now() -> str:
 
 def same_text(a: str, b: str) -> bool:
     """Whether two images' transcribed text is the same, allowing for case, punctuation and small misreads."""
-    a, b = (" ".join(re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).split()) for s in (a, b))
+    a, b = (" ".join(re.sub(r"[\W_]+", " ", (s or "").casefold()).split()) for s in (a, b))  # keeps any script's letters
     if not a or not b:
         return a == b  # two text-free pictures go on the hash alone; text on only one of them means different memes
-    return difflib.SequenceMatcher(None, a, b).ratio() >= TEXT_MATCH
+    # autojunk would ignore common characters in text over 200 long, so one misread could sink a long quote
+    return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio() >= TEXT_MATCH
 
 
 def _ts_to_iso(ts: str) -> str:
