@@ -24,6 +24,7 @@ def main() -> None:
     p.add_argument("--env-file", default=None, help="settings file (default .env); the deploy script writes .env.azure")
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    logging.getLogger("azure").setLevel(logging.WARNING)  # the storage SDK logs every HTTP request at INFO
 
     load_env(args.env_file)
     cfg = Config.from_env()
