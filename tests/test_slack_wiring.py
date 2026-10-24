@@ -106,6 +106,20 @@ def test_unfurl_arrives_as_edit_and_is_deposited(app_and_bank):
     assert bank.deposits == [("CGEN", "5.0")]
 
 
+def test_edits_by_bots_or_without_meme_bank_text_arent_deposited(app_and_bank):
+    app, bank, _ = app_and_bank
+    unfurl = {"attachments": [{"image_url": "https://pbs.twimg.com/a.jpg"}]}
+    send(app, {"type": "message", "subtype": "message_changed", "channel": "CGEN", "channel_type": "channel",
+               "ts": "6.1", "message": {"ts": "6.0", "bot_id": "BX", "text": "for the meme bank", **unfurl}})
+    send(app, {"type": "message", "subtype": "message_changed", "channel": "CGEN", "channel_type": "channel",
+               "ts": "7.1", "message": {"ts": "7.0", "user": "UTONY", "text": "look at this", **unfurl}})
+    send(app, {"type": "message", "subtype": "message_changed", "channel": "CGEN", "channel_type": "channel",
+               "ts": "8.1", "message": {"ts": "8.0", "user": "UTONY", "text": "meme bank", **unfurl}})  # control
+    wait_for(lambda: bank.deposits)
+    time.sleep(0.2)  # let the two that should be ignored finish too
+    assert bank.deposits == [("CGEN", "8.0")]
+
+
 def test_bank_reaction_deposits_the_message(app_and_bank):
     app, bank, history = app_and_bank
     history["6.0"] = [{"ts": "6.0", "user": "UKEVIN", "text": "lol", "files": IMG}]

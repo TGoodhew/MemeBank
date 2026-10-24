@@ -15,6 +15,21 @@ from memebank.core import MemeBank, local_source_key
 from memebank.tagger import ClaudeTagger
 
 
+def date_to_posted_at(date: str) -> str:
+    """--date YYYY-MM-DD as the ISO timestamp stored in posted_at (UTC midnight); "" if not given."""
+    return datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc).isoformat() if date else ""
+
+
+def import_files(bank, paths: list[str], caption: str = "", posted_by: str = "", posted_at: str = "") -> list:
+    results = []
+    for path in paths:
+        with open(path, "rb") as f:
+            data = f.read()
+        results.append((path, bank.deposit_bytes(data, local_source_key(data), caption=caption,
+                                                 posted_by=posted_by, posted_at=posted_at)))
+    return results
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("files", nargs="+")
@@ -29,14 +44,7 @@ def main() -> None:
     load_env(args.env_file)
     cfg = Config.from_env()
     bank = MemeBank(make_store(cfg), ClaudeTagger(cfg.anthropic_api_key, cfg.tag_model, cfg.search_model))
-    posted_at = ""
-    if args.date:
-        posted_at = datetime.strptime(args.date, "%Y-%m-%d").replace(tzinfo=timezone.utc).isoformat()
-    for path in args.files:
-        with open(path, "rb") as f:
-            data = f.read()
-        d = bank.deposit_bytes(data, local_source_key(data), caption=args.caption,
-                               posted_by=args.posted_by, posted_at=posted_at)
+    for path, d in import_files(bank, args.files, args.caption, args.posted_by, date_to_posted_at(args.date)):
         print(f"{d.status:9} #{d.meme.number} {d.meme.title}  <- {path}")
         if d.status == "new":
             print("          tags: " + ", ".join(d.meme.tags))
