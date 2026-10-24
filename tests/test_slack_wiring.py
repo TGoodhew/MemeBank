@@ -44,8 +44,12 @@ def app_and_bank(monkeypatch):
             data.update(user_id=BOT, bot_id="BBOT", team_id="T1", url="https://x.slack.com/")
         params = kw.get("params") or kw.get("data") or {}
         if api_method == "conversations.history":  # like Slack, top-level posts only
-            data["messages"] = [m for m in history.get(params.get("latest"), [])
-                                if m.get("thread_ts", m["ts"]) == m["ts"]]
+            latest = params.get("latest")
+            msgs = history.get(latest) if latest in history else history.get(None, [])
+            if latest and str(params.get("inclusive", "")).lower() not in ("1", "true"):  # strictly before latest
+                msgs = sorted((m for m in msgs if float(m["ts"]) < float(latest)), key=lambda m: -float(m["ts"]))
+                msgs = msgs[:int(params.get("limit", 100))]
+            data["messages"] = [m for m in msgs if m.get("thread_ts", m["ts"]) == m["ts"]]
         if api_method == "conversations.replies":
             data["messages"] = history.get(params.get("ts"), [])
         return SlackResponse(client=self, http_verb="POST", api_url=api_method, req_args={}, data=data,
@@ -199,6 +203,37 @@ def test_yes_or_no_sent_straight_into_the_dm_answers_the_pending_question(app_an
         assert bank.deposits == [("CGEN", "10.0")] and bank.banked_by == ["UTONY"]
     else:
         assert bank.deposits == [] and bank.said == [("DTONY", "OK, I've left it out of the vault.", None)]
+
+
+def test_a_top_level_yes_answers_the_question_before_it_not_a_newer_one(app_and_bank):
+    app, bank, history = app_and_bank
+    mine = {"ts": "101.0", "user": "UTONY", "text": "yes"}
+    newer = dict(_pending_question(history, post_ts="20.0"), ts="102.0")  # asked while the yes was on its way
+    history[None] = [newer, mine, _pending_question(history)]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", **mine})
+    wait_for(lambda: bank.deposits)
+    assert bank.deposits == [("CGEN", "10.0")]
+
+
+@pytest.mark.parametrize("text", ["tag #12 without context", "no France memes?", "not funny memes"])
+def test_a_short_command_or_search_after_a_question_isnt_taken_as_an_answer(app_and_bank, text):
+    app, bank, history = app_and_bank
+    mine = {"ts": "101.0", "user": "UTONY", "text": text}
+    history[None] = [mine, _pending_question(history)]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", **mine})
+    wait_for(lambda: bank.asks)
+    assert bank.deposits == [] and bank.said == [] and [a[2] for a in bank.asks] == [text]
+
+
+@pytest.mark.parametrize("text,banks", [("yes please", True), ("Sure, go ahead!", True), ("ok bank it", True),
+                                        ("no thanks", False), ("please don't", False), ("nah, leave it", False)])
+def test_short_answers_sent_straight_into_the_dm(app_and_bank, text, banks):
+    app, bank, history = app_and_bank
+    mine = {"ts": "101.0", "user": "UTONY", "text": text}
+    history[None] = [mine, _pending_question(history)]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", **mine})
+    wait_for(lambda: bank.said or bank.deposits)
+    assert bank.asks == [] and bool(bank.deposits) == banks
 
 
 def test_a_top_level_yes_with_no_question_pending_is_still_a_search(app_and_bank):

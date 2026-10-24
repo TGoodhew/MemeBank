@@ -16,6 +16,11 @@ BANKED_RE = re.compile(r"Banked (?:as )?\*#(\d+)")  # the bot's own "Banked as *
 YES_RE = re.compile(r"\s*(?:please\s+)?(?:y|yes|yep|yeah|yup|sure|ok|okay|bank it|store it|do it|go ahead)\b", re.I)
 # A refusal anywhere in the reply wins: "okay, don't bank it" and "sure, but do not store it" are noes.
 NO_RE = re.compile(r"^\s*n\b|\b(?:no|nope|nah|not|don'?t|do not|never|leave it|skip it|stop)\b", re.I)
+# Sent straight into the DM (not in the question's thread), a reply only counts as an answer if every word in it is
+# one of these, so "tag #12 without context" or "no France memes?" stay a command or a search.
+ANSWER_WORDS = {"y", "yes", "yep", "yeah", "yup", "sure", "ok", "okay", "please", "bank", "store", "do", "it", "go",
+                "ahead", "n", "no", "nope", "nah", "not", "don't", "dont", "never", "leave", "skip", "stop", "thanks",
+                "thank", "you", "ta", "cheers"}
 
 IGNORED_SUBTYPES = {"bot_message", "message_deleted", "channel_join", "channel_leave", "channel_topic",
                     "channel_purpose", "channel_name", "pinned_item", "unpinned_item", "tombstone"}
@@ -81,21 +86,21 @@ def build_app(cfg, bank: MemeBank) -> App:
         bank.handle_ask(client, channel, event.get("user", ""), rest, thread_ts=thread_ts)
 
     def answer_confirm(client, event, in_thread: bool) -> bool:
-        """An answer to a "want me to bank it?" DM: a reply in its thread, or a short yes/no sent straight into the DM
-        while that question is the bot's latest message there. True if it was one (and has been dealt with)."""
+        """An answer to a "want me to bank it?" DM: a reply in its thread, or a yes/no sent straight into the DM
+        right after that question. True if it was one (and has been dealt with)."""
         channel, text = event["channel"], event.get("text", "")
         plain = text.replace("’", "'").replace("‘", "'")
         no = NO_RE.search(plain) or NEGATION_RE.search(plain)  # "okay, I wouldn't bank it" is a no too
         yes = not no and YES_RE.match(plain)
-        if not (yes or no) or (not in_thread and len(plain.split()) > 6):
-            return False  # a longer top-level message is more likely a search ("no France memes?")
+        if not (yes or no) or (not in_thread and not set(re.findall(r"[\w']+", plain.lower())) <= ANSWER_WORDS):
+            return False
         try:
             if in_thread:
                 msgs = client.conversations_replies(channel=channel, ts=event["thread_ts"], limit=1,
                                                     include_all_metadata=True).get("messages", [])
-            else:  # newest first: the DM's latest message other than this answer
-                msgs = [m for m in client.conversations_history(channel=channel, limit=2, include_all_metadata=True)
-                        .get("messages", []) if m.get("ts") != event.get("ts")][:1]
+            else:  # the message just before this answer (not a newer question that arrived since)
+                msgs = client.conversations_history(channel=channel, latest=event["ts"], inclusive=False, limit=1,
+                                                    include_all_metadata=True).get("messages", [])
         except Exception:  # noqa: BLE001
             log.exception("Couldn't read the DM")
             return False
