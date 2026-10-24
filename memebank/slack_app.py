@@ -94,7 +94,10 @@ def build_app(cfg, bank: MemeBank) -> App:
         except Exception:  # noqa: BLE001
             log.exception("Couldn't read the DM thread")
             return False
-        meta = (msgs[0].get("metadata") or {}) if msgs else {}
+        root = msgs[0] if msgs else {}
+        if root.get("user") != bot_user_id:
+            return False  # only trust the question if the bot itself asked it
+        meta = root.get("metadata") or {}
         if meta.get("event_type") != CONFIRM_EVENT:
             return False
         if no:

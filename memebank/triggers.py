@@ -18,22 +18,29 @@ DEPOSIT_RE = re.compile(
     re.I,
 )
 
-_NEGATION = re.compile(r"\b(?:not|don'?t|do\s+not|isn'?t|aren'?t|wasn'?t|never|no\s+need\s+to|shouldn'?t|won'?t"
-                       r"|can'?t|mustn'?t|nobody)\b", re.I)
+# Any negation at all (every n't contraction, "not", "never", "no"...), and sentences that ask rather than tell. The
+# rule is deliberately cautious: when in doubt it isn't a deposit, and the poster just gets asked.
+_NEGATION = re.compile(r"\b(?:\w+n't|not|never|no|nope|nobody|nothing|without|dont|doesnt|didnt|wont|wouldnt|shouldnt"
+                       r"|cant|isnt|arent|wasnt)\b", re.I)
+_QUESTION_START = re.compile(r"^\W*(?:did|does|do|has|have|had|is|was|were|are|am|should|shall|can|could|would|will"
+                             r"|may|might|must|why|when|where|who|whom|what|which|how|wonder)\b", re.I)
 
 
 def says_deposit(text: str) -> bool:
-    """Deposit wording that's an instruction, not a refusal or a question: "Please don't add this to the meme bank",
-    "This isn't for the meme bank" and "Did I add this to the meme bank?" aren't deposits (they ask first)."""
+    """Deposit wording in a sentence that tells rather than asks and has no negation anywhere in it. "Please don't add
+    this to the meme bank", "A meme for the meme bank, but don't bank it yet" and "Did I add this to the meme bank"
+    (with or without the ?) aren't deposits: they go to the ask-first path."""
     text = (text or "").replace("’", "'").replace("‘", "'")  # phones type curly apostrophes
     text = re.sub(r"<[^>]*>|https?://\S+", " ", text)  # links (<url|label>, <@user>) have dots that aren't full stops
     for m in DEPOSIT_RE.finditer(text):
         start = max(text.rfind(c, 0, m.start()) for c in ".!?\n") + 1
         ends = [i for i in (text.find(c, m.end()) for c in ".!?\n") if i != -1]
-        if ends and text[min(ends)] == "?":
-            continue  # a question about the meme bank
-        if _NEGATION.search(text[start:m.end()][-80:]):
-            continue  # negated in the same sentence, before or inside the phrase ("added it, but not to the meme bank")
+        end = min(ends) if ends else len(text)
+        sentence = text[start:end + 1]
+        if sentence.rstrip().endswith("?") or _QUESTION_START.search(sentence):
+            continue  # asks about the meme bank
+        if _NEGATION.search(sentence):
+            continue  # negated somewhere in the same sentence
         return True
     return False
 

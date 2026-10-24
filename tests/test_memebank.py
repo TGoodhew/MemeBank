@@ -131,6 +131,11 @@ def setup(tmp_path):
     ("Has this been added to the meme bank <https://x.com/a/status/1|x.com/a/status/1> ?", True, False, ("confirm", "")),
     ("Has this been added to the meme bank https://x.com/a ?", True, False, ("confirm", "")),
     ("I added it, but not to the meme bank", True, False, ("confirm", "")),  # the negation is inside the phrase
+    ("I didn't add this to the meme bank", True, False, ("confirm", "")),  # any n't contraction
+    ("I wouldn't add this to the meme bank", True, False, ("confirm", "")),
+    ("Did I add this to the meme bank", True, False, ("confirm", "")),  # a question without the ?
+    ("Has this been added to the meme bank", True, False, ("confirm", "")),
+    ("A meme for the meme bank, but don't bank it yet.", True, False, ("confirm", "")),  # negation after the phrase
     ("A meme for the meme bank <@U6UTZEXAB|kevin>", False, False, None),  # link not unfurled yet: not a question
     ("This is why the meme bank is important", False, False, None),
     ("just a cat picture", True, False, None),

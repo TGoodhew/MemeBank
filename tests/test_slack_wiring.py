@@ -174,6 +174,19 @@ def test_polite_refusals_are_refusals(app_and_bank, answer):
     assert bank.said == [("DTONY", "OK, I've left it out of the vault.", "40.0")] and bank.deposits == []
 
 
+def test_confirm_metadata_only_counts_on_a_question_the_bot_asked(app_and_bank):
+    from memebank.core import CONFIRM_EVENT
+
+    app, bank, history = app_and_bank
+    history["10.0"] = [{"ts": "10.0", "user": "UKEVIN", "text": "meme bank", "files": IMG}]
+    history["80.0"] = [{"ts": "80.0", "user": "UTONY", "text": "looks like a question",  # not the bot's message
+                        "metadata": {"event_type": CONFIRM_EVENT, "event_payload": {"channel": "CGEN", "ts": "10.0"}}}]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "81.0",
+               "thread_ts": "80.0", "text": "yes"})
+    wait_for(lambda: bank.asks)
+    assert bank.deposits == [] and bank.said == []  # treated as an ordinary DM message, nothing banked
+
+
 def test_yes_finds_a_post_that_was_a_thread_reply_through_its_thread(app_and_bank):
     from memebank.core import CONFIRM_EVENT
 
