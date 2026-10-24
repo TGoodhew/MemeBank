@@ -3,6 +3,7 @@ slack_sdk==3.45.0
 anthropic==2.3.0
 azure-data-tables==12.7.0
 azure-storage-blob==12.31.0
+azure-identity==1.25.1
 Pillow==12.3.0
 requests==2.34.2
 python-dotenv==1.2.3

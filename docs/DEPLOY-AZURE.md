@@ -128,13 +128,15 @@ What it does, in order:
 |---|---|---|
 | Checks | Reads `.env` and stops if a secret is missing. Shows the signed-in subscription. Adds the `containerapp` CLI extension and registers `Microsoft.App` and `Microsoft.OperationalInsights` on the subscription. | ~1 min |
 | Resource group | Creates `rg-memebank` in the region. | seconds |
-| Storage | Creates a Standard LRS StorageV2 account named `memebank` plus 8 random characters, with TLS 1.2 minimum and no public blob access. Reads its connection string. | ~30 s |
+| Storage | Creates a Standard LRS StorageV2 account named `memebank` plus 8 random characters, with TLS 1.2 minimum and no public blob access. | ~30 s |
 | Protection | Turns on 30-day soft delete for blobs and containers, and puts a `CanNotDelete` lock (`keep-the-memes`) on the storage account, so the memes can't be deleted along with the resource group by accident. | seconds |
 | Build and deploy | `az containerapp up --source .` uploads the folder, builds the Dockerfile in the cloud, pushes the image to a new container registry, and creates the `memebank-env` environment (with a Log Analytics workspace) and the `memebank` app. | 5–10 min |
 | Ingress | Removes the public web endpoint if the build added one. The bot only makes outbound connections. | seconds |
-| Secrets | Stores the two Slack tokens, the Anthropic key and the storage connection string as Container App secrets. | seconds |
+| Storage by identity | Gives the container app a system-assigned managed identity, and grants it **and you** *Storage Table Data Contributor* and *Storage Blob Data Contributor* on the storage account. Then it waits, up to 10 minutes, until sign-in access actually works, because new role assignments take a few minutes. | 1–5 min |
+| Secrets | Stores the two Slack tokens and the Anthropic key as Container App secrets. There's no storage key: the app reaches storage as its identity. | seconds |
 | Settings | Points the environment variables at those secrets, sets `STORAGE_BACKEND=azure` and your channel and admin settings, sizes the app at 0.25 vCPU / 0.5 GiB, and pins it at exactly 1 replica. | ~1 min |
-| `.env.azure` | Writes your settings plus the storage connection string to `.env.azure`, for the backfill and import scripts. It's git-ignored and contains secrets. | — |
+| Account keys off | Turns off account-key (shared key) access on the storage account, so only signed-in identities get in. | seconds |
+| `.env.azure` | Writes your settings plus the storage account **name** (no key) to `.env.azure`, for the backfill, import and export scripts. They sign in as you, so run `az login` first. It's git-ignored, and still holds the Slack and Anthropic tokens. | — |
 
 During the build step the app may start before its secrets exist, crash, and restart. That's expected. The settings step fixes it.
 
@@ -230,6 +232,7 @@ My estimate is a few dollars to about $20 a month in total. Check the real figur
 | `UnicodeEncodeError: 'charmap' codec can't encode…` from `az` | The CLI on Windows can't print some characters when its output is piped or redirected, for example the ⚡ in the bot's startup log. Run the command directly in a terminal, or use *Log stream* in the portal. The Dockerfile turns off pip's progress bar so the cloud-build log stays plain ASCII for the same reason. |
 | Replica keeps restarting | Run `az containerapp logs show -n memebank -g rg-memebank --type system`. Usually a missing setting. |
 | "Gone quiet" alert, or the bot doesn't answer | Check *Revisions and replicas* first: is a replica running? Then look in *Log stream* for the last `Heartbeat:` line. `connected=False` means the Slack connection dropped: check the `xapp-` token and Slack's status page. No heartbeat at all means the process is stuck or stopped: restart the revision (§9). |
+| Storage errors `AuthorizationPermissionMismatch` / `AuthorizationFailure` (bot or scripts) | Sign-in access isn't in place. For the scripts: run `az login` (as the account that ran the deploy). For the bot: re-run `deploy.ps1`, which re-grants the roles and waits for them. In a pinch, `az storage account update -n <account> -g rg-memebank --allow-shared-key-access true` turns key access back on. |
 | "Errors" alert | In Log Analytics run `ContainerAppConsoleLogs_CL \| where Log_s matches regex @'^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d+ (ERROR\|CRITICAL) ' or Log_s startswith 'Traceback (most recent call last)' \| order by TimeGenerated desc` to see what failed (then look at the lines just after a traceback). Claude 401/403 is the key, Slack `invalid_auth` is the bot token, and 429/overloaded is temporary. |
 
 ---
