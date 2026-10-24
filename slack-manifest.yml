@@ -1,0 +1,35 @@
+display_information:
+  name: Meme Bank
+  description: Keeps every "meme for the meme bank" and finds it again when you ask.
+  background_color: "#1f3a2b"
+features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: Meme Bank
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - channels:history   # see meme-bank posts in public channels
+      - groups:history     # ...and in private channels it's invited to
+      - im:history         # answer DMs
+      - chat:write         # replies
+      - files:read         # download the meme images
+      - files:write        # post a meme back when someone asks for it
+      - reactions:read     # :bank: reaction to bank any post
+      - reactions:write    # :bank: on banked posts
+settings:
+  event_subscriptions:
+    bot_events:
+      - message.channels
+      - message.groups
+      - message.im
+      - reaction_added
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false

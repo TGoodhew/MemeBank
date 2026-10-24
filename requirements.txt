@@ -1,0 +1,8 @@
+slack_bolt==1.30.0
+slack_sdk==3.45.0
+anthropic==2.3.0
+azure-data-tables==12.7.0
+azure-storage-blob==12.31.0
+Pillow==12.3.0
+requests==2.34.2
+python-dotenv==1.2.3
