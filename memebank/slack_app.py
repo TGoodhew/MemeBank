@@ -55,7 +55,7 @@ def build_app(cfg, bank: MemeBank) -> App:
         text = event.get("text", "")
         thread_ts = event.get("thread_ts")
         in_thread = bool(thread_ts) and thread_ts != event.get("ts")
-        if channel_type == "im" and in_thread and not images_in(event, channel) and answer_confirm(client, event):
+        if channel_type == "im" and not images_in(event, channel) and answer_confirm(client, event, in_thread):
             return
         trig = classify(text, bool(images_in(event, channel)), bot_user_id, is_dm=channel_type == "im")
         if trig is None:
@@ -80,21 +80,27 @@ def build_app(cfg, bank: MemeBank) -> App:
                 rest = f"tag #{number} {cmd.query}"
         bank.handle_ask(client, channel, event.get("user", ""), rest, thread_ts=thread_ts)
 
-    def answer_confirm(client, event) -> bool:
-        """A reply in the thread of a "want me to bank it?" DM. True if it was one (and has been dealt with)."""
-        channel, thread_ts, text = event["channel"], event["thread_ts"], event.get("text", "")
+    def answer_confirm(client, event, in_thread: bool) -> bool:
+        """An answer to a "want me to bank it?" DM: a reply in its thread, or a short yes/no sent straight into the DM
+        while that question is the bot's latest message there. True if it was one (and has been dealt with)."""
+        channel, text = event["channel"], event.get("text", "")
         plain = text.replace("’", "'").replace("‘", "'")
         no = NO_RE.search(plain) or NEGATION_RE.search(plain)  # "okay, I wouldn't bank it" is a no too
         yes = not no and YES_RE.match(plain)
-        if not (yes or no):
-            return False
+        if not (yes or no) or (not in_thread and len(plain.split()) > 6):
+            return False  # a longer top-level message is more likely a search ("no France memes?")
         try:
-            msgs = client.conversations_replies(channel=channel, ts=thread_ts, limit=1,
-                                                include_all_metadata=True).get("messages", [])
+            if in_thread:
+                msgs = client.conversations_replies(channel=channel, ts=event["thread_ts"], limit=1,
+                                                    include_all_metadata=True).get("messages", [])
+            else:  # newest first: the DM's latest message other than this answer
+                msgs = [m for m in client.conversations_history(channel=channel, limit=2, include_all_metadata=True)
+                        .get("messages", []) if m.get("ts") != event.get("ts")][:1]
         except Exception:  # noqa: BLE001
-            log.exception("Couldn't read the DM thread")
+            log.exception("Couldn't read the DM")
             return False
         root = msgs[0] if msgs else {}
+        thread_ts = event["thread_ts"] if in_thread else None  # answer where they answered
         if root.get("user") != bot_user_id:
             return False  # only trust the question if the bot itself asked it
         meta = root.get("metadata") or {}

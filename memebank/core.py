@@ -195,7 +195,7 @@ class MemeBank:
             client.chat_postMessage(
                 channel=user, unfurl_links=False,
                 text=(f"You mentioned the meme bank with a picture in <#{channel}> ({post}). Want me to bank it? "
-                      f"Reply `yes` in this thread, or react :bank: on the post. Otherwise I'll leave it be."),
+                      f"Reply `yes` or `no`, or react :bank: on the post. Otherwise I'll leave it be."),
                 metadata={"event_type": CONFIRM_EVENT, "event_payload": payload})
         except Exception:  # noqa: BLE001
             log.exception("Couldn't ask %s about %s/%s", user, channel, ts)

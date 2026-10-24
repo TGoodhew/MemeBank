@@ -178,6 +178,47 @@ def test_polite_refusals_are_refusals(app_and_bank, answer):
     assert bank.said == [("DTONY", "OK, I've left it out of the vault.", "40.0")] and bank.deposits == []
 
 
+def _pending_question(history, post_ts="10.0"):
+    from memebank.core import CONFIRM_EVENT
+
+    history[post_ts] = [{"ts": post_ts, "user": "UTONY", "text": "meme bank", "files": IMG}]  # the post in #general
+    return {"ts": "100.0", "user": BOT, "text": "Want me to bank it? Reply `yes` or `no`…",
+            "metadata": {"event_type": CONFIRM_EVENT, "event_payload": {"channel": "CGEN", "ts": post_ts}}}
+
+
+@pytest.mark.parametrize("answer,banks", [("yes", True), ("no", False)])
+def test_yes_or_no_sent_straight_into_the_dm_answers_the_pending_question(app_and_bank, answer, banks):
+    app, bank, history = app_and_bank
+    mine = {"ts": "101.0", "user": "UTONY", "text": answer}
+    history[None] = [mine, _pending_question(history)]  # newest first; Slack includes the answer just sent
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", **mine})
+    wait_for(lambda: bank.said or bank.deposits)
+    time.sleep(0.1)
+    assert bank.asks == []  # not a search for "yes"/"no" any more
+    if banks:
+        assert bank.deposits == [("CGEN", "10.0")] and bank.banked_by == ["UTONY"]
+    else:
+        assert bank.deposits == [] and bank.said == [("DTONY", "OK, I've left it out of the vault.", None)]
+
+
+def test_a_top_level_yes_with_no_question_pending_is_still_a_search(app_and_bank):
+    app, bank, history = app_and_bank
+    mine = {"ts": "101.0", "user": "UTONY", "text": "yes"}
+    history[None] = [mine, {"ts": "100.0", "user": BOT, "text": "Banked *#21: …*. Here are the tags I used…"}]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", **mine})
+    wait_for(lambda: bank.asks)
+    assert bank.asks == [("DTONY", "UTONY", "yes", None)] and bank.deposits == []
+
+
+def test_a_longer_top_level_message_after_a_question_is_still_a_search(app_and_bank):
+    app, bank, history = app_and_bank
+    mine = {"ts": "101.0", "user": "UTONY", "text": "no wait, find me the France meme please"}
+    history[None] = [mine, _pending_question(history)]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", **mine})
+    wait_for(lambda: bank.asks)
+    assert bank.deposits == [] and bank.said == [] and len(bank.asks) == 1
+
+
 def test_no_after_someone_else_banked_it_doesnt_pretend_it_was_left_out(app_and_bank):
     from memebank.core import CONFIRM_EVENT
 
