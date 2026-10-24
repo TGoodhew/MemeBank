@@ -108,6 +108,36 @@ Invoke-Az containerapp update --name $AppName --resource-group $ResourceGroup `
     --min-replicas 1 --max-replicas 1 --cpu 0.25 --memory 0.5Gi `
     --set-env-vars @envVars --only-show-errors | Out-Null
 
+if ($cfg['ALERT_EMAIL']) {
+    Write-Host "== Alerts to $($cfg['ALERT_EMAIL']) (restarts, errors, gone quiet)"
+    Invoke-Az extension add --name scheduled-query --upgrade --only-show-errors | Out-Null
+    $appId = Invoke-Az containerapp show --name $AppName --resource-group $ResourceGroup --query id -o tsv
+    $workspace = Invoke-Az monitor log-analytics workspace list --resource-group $ResourceGroup --query "[0].id" -o tsv
+    $group = Invoke-Az monitor action-group create --name "$AppName-alerts" --resource-group $ResourceGroup `
+        --short-name $AppName.Substring(0, [Math]::Min(12, $AppName.Length)) `
+        --action email owner $cfg['ALERT_EMAIL'] --only-show-errors --query id -o tsv
+    # A crash loop: a bad or revoked token, a missing setting. Normal deploys stay at 0-1 restarts.
+    Invoke-Az monitor metrics alert create --name "$AppName-restarts" --resource-group $ResourceGroup --scopes $appId `
+        --condition "max RestartCount > 3" --window-size 1h --evaluation-frequency 15m --severity 2 --action $group `
+        --description "The Meme Bank container keeps restarting. Check: az containerapp logs show -n $AppName -g $ResourceGroup --type system" `
+        --only-show-errors | Out-Null
+    $logs = "ContainerAppConsoleLogs_CL | where ContainerAppName_s == '$AppName'"
+    # A deposit, search or upload failed: Claude unreachable, Slack errors, storage errors.
+    Invoke-Az monitor scheduled-query create --name "$AppName-errors" --resource-group $ResourceGroup --scopes $workspace `
+        --condition "count 'Errors' > 0" --condition-query "Errors=$logs | where Log_s has ' ERROR ' or Log_s has 'Traceback'" `
+        --window-size 15m --evaluation-frequency 15m --severity 2 --action-groups $group `
+        --description "The Meme Bank logged an error. Look in Log stream or Log Analytics for ERROR lines." `
+        --only-show-errors | Out-Null
+    # Hung, or connected to nothing: the bot logs "Heartbeat: connected=True" every hour while Slack is reachable.
+    Invoke-Az monitor scheduled-query create --name "$AppName-quiet" --resource-group $ResourceGroup --scopes $workspace `
+        --condition "count 'Heartbeats' < 1" --condition-query "Heartbeats=$logs | where Log_s has 'Heartbeat: connected=True'" `
+        --window-size 2h --evaluation-frequency 1h --severity 1 --action-groups $group `
+        --description "No connected heartbeat from the Meme Bank for 2 hours: it may be down or disconnected from Slack." `
+        --only-show-errors | Out-Null
+} else {
+    Write-Host "== Alerts skipped (set ALERT_EMAIL in $EnvFile to get them)"
+}
+
 # .env.azure: same settings, pointed at the cloud storage, for running backfill/import from this PC
 $lines = @(foreach ($k in $cfg.Keys) { if ($k -notin "STORAGE_BACKEND", "AZURE_STORAGE_CONNECTION_STRING") { "$k=$($cfg[$k])" } })
 $lines += "STORAGE_BACKEND=azure", "AZURE_STORAGE_CONNECTION_STRING=$conn"
