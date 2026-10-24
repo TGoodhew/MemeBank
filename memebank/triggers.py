@@ -50,7 +50,7 @@ def classify(text: str, has_images: bool, bot_user_id: str | None = None, is_dm:
 
 @dataclass
 class Command:
-    name: str  # help | random | stats | get | forget | retag | search
+    name: str  # help | random | stats | get | forget | restore | retag | search
     number: int | None = None
     query: str = ""
 
@@ -74,6 +74,9 @@ def parse_command(rest: str) -> Command:
     m = re.fullmatch(r"(?:forget|delete|remove|withdraw)\s+(?:meme\s+)?#?(\d+)", low)
     if m:
         return Command("forget", int(m.group(1)))
+    m = re.fullmatch(r"(?:restore|unforget|undelete|un-?withdraw|undo\s+forget|bring\s+back)\s+(?:meme\s+)?#?(\d+)", low)
+    if m:
+        return Command("restore", int(m.group(1)))
     m = re.fullmatch(r"(?:retag|re-tag|redo)\s+(?:meme\s+)?#?(\d+)", low)
     if m:
         return Command("retag", int(m.group(1)))

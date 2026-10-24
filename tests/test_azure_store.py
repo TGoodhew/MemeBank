@@ -44,6 +44,18 @@ def test_round_trip_and_delete(store):
     assert store.all(refresh=True) == []
 
 
+def test_withdrawn_memes_are_hidden_but_kept(store):
+    store.put(meme(store.next_number(), "slack:F1"), b"one")
+    store.put(meme(store.next_number(), "slack:F2"), b"two")
+    m = store.get(1)
+    m.withdrawn_at = "2026-10-24T18:00:00+00:00"
+    store.put(m, None)
+    assert [x.number for x in store.all(refresh=True)] == [2] and store.get(1) is None
+    assert store.get(1, include_withdrawn=True).withdrawn_at and store.find_by_source("slack:F1").number == 1
+    assert store.get_image(store.get(1, include_withdrawn=True)) == b"one"
+    assert store.next_number() == 3  # never reused
+
+
 def test_numbers_are_unique_under_concurrency(store):
     other = AzureStore(CONN, table_name=store.table.table_name, container=store.blobs.container_name)
     got, lock = [], threading.Lock()

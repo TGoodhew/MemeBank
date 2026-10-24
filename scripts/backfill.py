@@ -56,12 +56,13 @@ def main() -> None:
 
     bank = MemeBank(make_store(cfg), ClaudeTagger(cfg.anthropic_api_key, cfg.tag_model, cfg.search_model),
                     cfg.slack_bot_token, cfg.admin_user_ids, ack_mode=cfg.ack_mode)
-    counts = {"new": 0, "already": 0, "duplicate": 0}
+    counts = {"new": 0, "already": 0, "duplicate": 0, "withdrawn": 0}
     for m in candidates:
         for d in bank.deposit_message(client, args.channel, m, acknowledge=args.ack):
             counts[d.status] += 1
             print(f"  {d.status:9} #{d.meme.number} {d.meme.title}")
-    print(f"Done: {counts['new']} banked, {counts['already']} already in, {counts['duplicate']} duplicates skipped")
+    print(f"Done: {counts['new']} banked, {counts['already']} already in, {counts['duplicate']} duplicates skipped, "
+          f"{counts['withdrawn']} withdrawn (left out)")
 
 
 if __name__ == "__main__":

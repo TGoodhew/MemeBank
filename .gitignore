@@ -5,3 +5,4 @@
 memebank-data/
 __pycache__/
 .pytest_cache/
+memebank-backup/
