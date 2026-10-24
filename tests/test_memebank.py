@@ -184,6 +184,28 @@ def test_classify(text, has_img, dm, expect):
     ("tag #12 without context", "tag", 12, "without context"),
     ("could you find me the France meme?", "search", None, "the France meme"),
     ("What memes relate to France", "search", None, "What memes relate to France"),
+    # questions about the bot itself are help, however they're worded (#50)
+    ("can you explain how you work to everyone?", "help", None, ""),
+    ("please explain yourself", "help", None, ""),
+    ("explain to everyone how this works", "help", None, ""),
+    ("how do I use you?", "help", None, ""),
+    ("how does the meme bank work", "help", None, ""),
+    ("how do you work", "help", None, ""),
+    ("how does this work?", "help", None, ""),
+    ("what can you do?", "help", None, ""),
+    ("what are your commands", "help", None, ""),
+    ("commands", "help", None, ""),
+    ("who are you?", "help", None, ""),
+    ("Help!", "help", None, ""),
+    ("help me find the France meme", "search", None, "help me find the France meme"),
+    ("how socialism works", "search", None, "how socialism works"),
+    ("the one where they explain inflation", "search", None, "the one where they explain inflation"),
+    ("explain this meme", "search", None, "explain this meme"),
+    ("the meme about how to use chopsticks", "search", None, "the meme about how to use chopsticks"),
+    ("how does socialism work", "search", None, "how does socialism work"),
+    ("what do you have on socialism", "search", None, "what do you have on socialism"),
+    ("tell us about yourself", "help", None, ""),
+    ("so what can you do for us?", "help", None, ""),
 ])
 def test_parse_command(rest, name, number, query):
     c = parse_command(rest)
