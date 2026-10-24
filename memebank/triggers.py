@@ -26,13 +26,14 @@ def says_deposit(text: str) -> bool:
     """Deposit wording that's an instruction, not a refusal or a question: "Please don't add this to the meme bank",
     "This isn't for the meme bank" and "Did I add this to the meme bank?" aren't deposits (they ask first)."""
     text = (text or "").replace("’", "'").replace("‘", "'")  # phones type curly apostrophes
+    text = re.sub(r"<[^>]*>|https?://\S+", " ", text)  # links (<url|label>, <@user>) have dots that aren't full stops
     for m in DEPOSIT_RE.finditer(text):
         start = max(text.rfind(c, 0, m.start()) for c in ".!?\n") + 1
         ends = [i for i in (text.find(c, m.end()) for c in ".!?\n") if i != -1]
         if ends and text[min(ends)] == "?":
             continue  # a question about the meme bank
-        if _NEGATION.search(text[start:m.start()][-40:]):
-            continue  # negated earlier in the same sentence
+        if _NEGATION.search(text[start:m.end()][-80:]):
+            continue  # negated in the same sentence, before or inside the phrase ("added it, but not to the meme bank")
         return True
     return False
 
