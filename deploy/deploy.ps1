@@ -3,8 +3,9 @@
   Deploys (or updates) the Meme Bank bot on Azure Container Apps.
 
 .DESCRIPTION
-  Creates, if missing: a resource group, a storage account (Table + Blob for the memes), a Container Apps
-  environment and the app itself, built in the cloud from this folder's Dockerfile. Secrets come from .env
+  Creates, if missing: a resource group, a storage account (Table + Blob for the memes, with 30-day soft delete
+  and a delete lock), a Container Apps environment and the app itself, built in the cloud from this folder's
+  Dockerfile. Secrets come from .env
   and are stored as Container App secrets. Re-run it any time to ship code changes.
 
   Also writes .env.azure (your .env plus the storage connection string) so the backfill and import scripts
@@ -67,6 +68,16 @@ Invoke-Az storage account create --name $StorageAccount --resource-group $Resour
     --sku Standard_LRS --kind StorageV2 --min-tls-version TLS1_2 --allow-blob-public-access false --only-show-errors | Out-Null
 $conn = Invoke-Az storage account show-connection-string --name $StorageAccount --resource-group $ResourceGroup --query connectionString -o tsv
 
+Write-Host "== Protecting the memes (30-day soft delete, delete lock)"
+# Deleted or overwritten images stay recoverable for 30 days.
+Invoke-Az storage account blob-service-properties update --account-name $StorageAccount --resource-group $ResourceGroup `
+    --enable-delete-retention true --delete-retention-days 30 `
+    --enable-container-delete-retention true --container-delete-retention-days 30 --only-show-errors | Out-Null
+# The account (and so the resource group) can't be deleted until this lock is removed on purpose.
+Invoke-Az lock create --name keep-the-memes --lock-type CanNotDelete --resource-group $ResourceGroup `
+    --resource $StorageAccount --resource-type Microsoft.Storage/storageAccounts `
+    --notes "Holds the memes. Export them (python -m scripts.export) before removing this lock." --only-show-errors | Out-Null
+
 Write-Host "== Building and deploying the container (cloud build, takes a few minutes)"
 Invoke-Az containerapp up --name $AppName --resource-group $ResourceGroup --location $Location `
     --environment "$AppName-env" --source . | Out-Host
@@ -106,4 +117,5 @@ Write-Host ""
 Write-Host "Done. The Meme Bank is starting up in Azure."
 Write-Host "  Watch the logs:   az containerapp logs show -n $AppName -g $ResourceGroup --follow"
 Write-Host "  Backfill (dry):   python -m scripts.backfill --env-file .env.azure --channel C6UTZF23Z --dry-run"
-Write-Host "  Remove it all:    az group delete -n $ResourceGroup"
+Write-Host "  Back up memes:    python -m scripts.export --env-file .env.azure"
+Write-Host "  Remove it all:    export first, then remove the lock (docs/DEPLOY-AZURE.md, section 12) and run az group delete -n $ResourceGroup"

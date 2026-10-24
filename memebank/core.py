@@ -30,7 +30,7 @@ HELP = """*The Meme Bank* :bank:
 • `hey meme bank, what have you got on socialism?`
 • `hey meme bank, #12`  ·  `random`  ·  `stats`
 • `hey meme bank, retag #12` (if the tags missed something)
-• `hey meme bank, forget #12` (your own deposits)
+• `hey meme bank, forget #12` (your own deposits; `restore #12` undoes it)
 You can also @mention me, or DM me a question without the "hey meme bank"."""
 
 
@@ -45,7 +45,7 @@ class ImageRef:
 @dataclass
 class Deposit:
     meme: Meme
-    status: str  # "new" | "already" | "duplicate"
+    status: str  # "new" | "already" | "duplicate" | "withdrawn" (this very post was banked, then forgotten)
 
 
 def _now() -> str:
@@ -98,7 +98,7 @@ class MemeBank:
         with self._deposit_lock:
             existing = self.store.find_by_source(source_key)
             if existing:
-                return Deposit(existing, "already")
+                return Deposit(existing, "withdrawn" if existing.withdrawn_at else "already")
             content_type = images.sniff(data)
             h = images.dhash(data)
             near = [(images.hamming(h, m.dhash), m) for m in self.store.all() if m.dhash]
@@ -135,8 +135,9 @@ class MemeBank:
         results = []
         for ref in refs:
             try:
-                if self.store.find_by_source(ref.key):  # skip the download for repeats (edits, retries)
-                    results.append(Deposit(self.store.find_by_source(ref.key), "already"))
+                found = self.store.find_by_source(ref.key)
+                if found:  # skip the download for repeats (edits, retries)
+                    results.append(Deposit(found, "withdrawn" if found.withdrawn_at else "already"))
                     continue
                 data = self._fetch(ref.url, self.bot_token if ref.slack_auth else None)
                 results.append(self.deposit_bytes(
@@ -165,6 +166,10 @@ class MemeBank:
             lines.append(f"Banked as *#{r.meme.number}: {r.meme.title}*\n_{', '.join(r.meme.tags[:12])}_")
         for r in dupes:
             lines.append(f"Already in the vault as *#{r.meme.number}: {r.meme.title}*. The meme bank never forgets.")
+        for r in results:
+            if r.status == "withdrawn":
+                lines.append(f"*#{r.meme.number}: {r.meme.title}* was withdrawn from the vault. "
+                             f"`hey meme bank, restore #{r.meme.number}` brings it back.")
         if lines:
             self._say(client, channel, "\n".join(lines), thread_ts=thread or ts)
 
@@ -174,29 +179,49 @@ class MemeBank:
         memes = self.store.all()
         if cmd.name == "help":
             self._say(client, channel, HELP, thread_ts)
+        elif cmd.name in ("get", "forget", "restore", "retag"):
+            self._numbered(client, channel, user, cmd, thread_ts)
         elif not memes:
             self._say(client, channel, "The vault is empty. Post something \"for the meme bank\" to make the first deposit.", thread_ts)
         elif cmd.name == "random":
             self._post_meme(client, channel, random.choice(memes), thread_ts, "Dealer's choice:")
         elif cmd.name == "stats":
             self._say(client, channel, self._stats(memes), thread_ts)
-        elif cmd.name in ("get", "forget", "retag"):
-            meme = self.store.get(cmd.number)
-            if not meme:
-                self._say(client, channel, f"There's no #{cmd.number} in the vault.", thread_ts)
-            elif cmd.name == "get":
-                self._post_meme(client, channel, meme, thread_ts)
-            elif cmd.name == "forget":
-                if user and (user == meme.posted_by or user in self.admins):
-                    self.store.delete(meme)
-                    self._say(client, channel, f"Withdrawn: #{meme.number} {meme.title} is gone from the vault.", thread_ts)
-                else:
-                    self._say(client, channel, f"Only whoever deposited #{meme.number} (or a bank manager) can withdraw it.", thread_ts)
-            else:
-                self._retag(client, channel, meme, thread_ts)
         else:
             self._search(client, channel, cmd.query, memes, thread_ts)
         return cmd
+
+    def _numbered(self, client, channel, user, cmd: Command, thread_ts):
+        """Commands about one meme by number. Withdrawn memes only answer to "restore"."""
+        meme = self.store.get(cmd.number, include_withdrawn=True)
+        n = cmd.number
+        allowed = bool(user) and meme is not None and (user == meme.posted_by or user in self.admins)
+        if not meme:
+            self._say(client, channel, f"There's no #{n} in the vault.", thread_ts)
+        elif cmd.name == "restore":
+            if not meme.withdrawn_at:
+                self._say(client, channel, f"#{n} {meme.title} is already in the vault.", thread_ts)
+            elif allowed:
+                meme.withdrawn_at = ""
+                self.store.put(meme, None)
+                self._say(client, channel, f"Restored: #{n} {meme.title} is back in the vault.", thread_ts)
+            else:
+                self._say(client, channel, f"Only whoever deposited #{n} (or a bank manager) can restore it.", thread_ts)
+        elif meme.withdrawn_at:
+            self._say(client, channel, f"#{n} was withdrawn from the vault. Whoever deposited it (or a bank manager) "
+                                       f"can `restore #{n}`.", thread_ts)
+        elif cmd.name == "get":
+            self._post_meme(client, channel, meme, thread_ts)
+        elif cmd.name == "forget":
+            if allowed:
+                meme.withdrawn_at = _now()
+                self.store.put(meme, None)  # hidden, not deleted: the row and image stay for "restore"
+                self._say(client, channel, f"Withdrawn: #{n} {meme.title} is out of the vault. "
+                                           f"`hey meme bank, restore #{n}` puts it back.", thread_ts)
+            else:
+                self._say(client, channel, f"Only whoever deposited #{n} (or a bank manager) can withdraw it.", thread_ts)
+        else:
+            self._retag(client, channel, meme, thread_ts)
 
     def _search(self, client, channel, query, memes, thread_ts):
         hits = search(query, memes, self.tagger)

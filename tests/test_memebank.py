@@ -1,4 +1,5 @@
 import io
+import json
 import random
 
 import pytest
@@ -137,6 +138,9 @@ def test_classify(text, has_img, dm, expect):
     ("show me #7", "get", 7, ""),
     ("number 3", "get", 3, ""),
     ("forget #4", "forget", 4, ""),
+    ("restore #4", "restore", 4, ""),
+    ("undo forget 4", "restore", 4, ""),
+    ("bring back meme #4", "restore", 4, ""),
     ("retag 9", "retag", 9, ""),
     ("could you find me the France meme?", "search", None, "the France meme"),
     ("What memes relate to France", "search", None, "What memes relate to France"),
@@ -287,6 +291,67 @@ def test_forget_only_by_poster_or_admin(setup):
     assert store.get(1) is None
     bank.handle_ask(client, "CGEN", "UADMIN", "forget #2")
     assert store.all() == []
+
+
+def test_forget_hides_and_restore_brings_back(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    say = lambda: client.named("chat_postMessage")[-1]["text"]  # noqa: E731
+    bank.handle_ask(client, "CGEN", "UTONY", "forget #1")
+    assert "restore #1" in say()
+    hidden = store.get(1, include_withdrawn=True)
+    assert hidden.withdrawn_at and store.get_image(hidden) == png(1)  # still stored, image and all
+    bank.handle_ask(client, "CGEN", "U", "stats")
+    assert "*1 memes*" in say()
+    bank.handle_ask(client, "CGEN", "U", "#1")
+    assert "was withdrawn" in say() and not client.named("files_upload_v2")
+    bank.handle_ask(client, "CGEN", "UKEVIN", "restore #1")
+    assert "Only whoever deposited" in say() and store.get(1) is None
+    bank.handle_ask(client, "CGEN", "UTONY", "restore #1")
+    assert "back in the vault" in say() and store.get(1).title == "Fidel island socialism"
+    bank.handle_ask(client, "CGEN", "UTONY", "restore #1")
+    assert "already in the vault" in say()
+
+
+def test_restore_works_even_when_everything_was_forgotten(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    bank.handle_ask(client, "CGEN", "UADMIN", "forget #1")
+    bank.handle_ask(client, "CGEN", "UADMIN", "forget #2")
+    bank.handle_ask(client, "CGEN", "UADMIN", "restore #2")
+    assert [m.number for m in store.all()] == [2]
+
+
+def test_forgotten_numbers_are_never_reused(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    bank.handle_ask(client, "CGEN", "UKEVIN", "forget #2")
+    bank.deposit_message(client, "CGEN", slack_msg("3.0", "meme bank", "F3"))
+    assert [m.number for m in store.all()] == [1, 3]
+
+
+def test_reacting_to_a_forgotten_post_offers_restore_instead_of_a_copy(setup):
+    bank, store, tagger, client = setup
+    msg = slack_msg("100.1", "a meme for the meme bank", "F1")
+    bank.deposit_message(client, "CGEN", msg)
+    bank.handle_ask(client, "CGEN", "UTONY", "forget #1")
+    res = bank.deposit_message(client, "CGEN", msg)
+    assert [r.status for r in res] == ["withdrawn"] and len(store.all(include_withdrawn=True)) == 1
+    assert "restore #1" in client.named("chat_postMessage")[-1]["text"]
+
+
+def test_export_writes_catalogue_and_images_including_withdrawn(setup, tmp_path):
+    from scripts.export import export
+
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    bank.handle_ask(client, "CGEN", "UTONY", "forget #1")
+    out = tmp_path / "backup"
+    assert export(store, str(out)) == {"memes": 2, "withdrawn": 1, "downloaded": 2, "kept": 0}
+    rows = json.loads((out / "memes.json").read_text(encoding="utf-8"))
+    assert [(r["number"], bool(r["withdrawn_at"])) for r in rows] == [(1, True), (2, False)]
+    assert (out / "images" / rows[1]["blob_name"]).read_bytes() == png(2)
+    assert export(store, str(out))["kept"] == 2  # a re-run only fetches what's new
 
 
 def test_empty_vault_and_stats_and_help(setup):

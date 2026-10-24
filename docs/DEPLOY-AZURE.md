@@ -129,6 +129,7 @@ What it does, in order:
 | Checks | Reads `.env` and stops if a secret is missing. Shows the signed-in subscription. Adds the `containerapp` CLI extension and registers `Microsoft.App` and `Microsoft.OperationalInsights` on the subscription. | ~1 min |
 | Resource group | Creates `rg-memebank` in the region. | seconds |
 | Storage | Creates a Standard LRS StorageV2 account named `memebank` plus 8 random characters, with TLS 1.2 minimum and no public blob access. Reads its connection string. | ~30 s |
+| Protection | Turns on 30-day soft delete for blobs and containers, and puts a `CanNotDelete` lock (`keep-the-memes`) on the storage account, so the memes can't be deleted along with the resource group by accident. | seconds |
 | Build and deploy | `az containerapp up --source .` uploads the folder, builds the Dockerfile in the cloud, pushes the image to a new container registry, and creates the `memebank-env` environment (with a Log Analytics workspace) and the `memebank` app. | 5–10 min |
 | Ingress | Removes the public web endpoint if the build added one. The bot only makes outbound connections. | seconds |
 | Secrets | Stores the two Slack tokens, the Anthropic key and the storage connection string as Container App secrets. | seconds |
@@ -180,6 +181,8 @@ The bot picks up memes added by these scripts within a minute.
 - **Restart:** `az containerapp revision restart -n memebank -g rg-memebank --revision (az containerapp revision list -n memebank -g rg-memebank --query "[0].name" -o tsv)`
 - **See the app in the portal:** portal.azure.com, then **Resource groups**, then **rg-memebank**, then **memebank**. *Log stream* shows live logs, and *Revisions and replicas* shows health.
 - **Look at the stored memes:** open the storage account and use *Storage browser*. Tables → `memes` is the catalogue, and Blob containers → `memes` holds the images.
+- **Back up the memes:** `python -m scripts.export --env-file .env.azure` copies the catalogue (`memes.json`) and every image to `.\memebank-backup`. Re-running it only downloads new images. Do this every so often, and always before removing anything.
+- **Undo a `forget`:** `hey meme bank, restore #12`. A forgotten meme is only hidden, so it keeps its number and image. Deleted or overwritten images are also kept for 30 days by blob soft delete, which you can see under the storage account's *Data protection* settings.
 
 ---
 
@@ -222,8 +225,13 @@ My estimate is a few dollars to about $20 a month in total. Check the real figur
 
 ## 12. Removing it
 
+This deletes everything, **including the stored memes**, so back them up first. The storage account has a delete lock (`keep-the-memes`), so `az group delete` fails until you remove it on purpose:
+
 ```powershell
+python -m scripts.export --env-file .env.azure --out memebank-backup   # the catalogue (memes.json) plus every image
+$sa = az storage account list -g rg-memebank --query "[0].name" -o tsv
+az lock delete --name keep-the-memes -g rg-memebank --resource $sa --resource-type Microsoft.Storage/storageAccounts
 az group delete -n rg-memebank
 ```
 
-This deletes everything, **including the stored memes**. If you want to keep the memes, download the `memes` blob container and table from Storage browser first. Afterwards, delete the Slack app at api.slack.com/apps and revoke the Anthropic key.
+Afterwards, delete the Slack app at api.slack.com/apps and revoke the Anthropic key.

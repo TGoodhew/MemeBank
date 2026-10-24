@@ -23,7 +23,8 @@ Because the bank keeps its own copy of every image, a meme survives after Slack'
 | `hey meme bank, #12` | posts meme 12 |
 | `hey meme bank, random` | dealer's choice |
 | `hey meme bank, stats` | how many memes it has, plus the most common tags |
-| `hey meme bank, forget #12` | removes it (only the person who deposited it, or someone listed in ADMIN_USER_IDS) |
+| `hey meme bank, forget #12` | takes it out of the vault (only the person who deposited it, or someone listed in ADMIN_USER_IDS). It's hidden, not deleted |
+| `hey meme bank, restore #12` | puts a forgotten meme back, with the same number (same people as `forget`) |
 | `hey meme bank, retag #12` | has Claude tag it again |
 | `hey meme bank` or `hey meme bank, help` | shows the help |
 
@@ -91,7 +92,8 @@ Adjust the file names to match what's actually in Downloads. If the backfill alr
 - **Settings:** edit `.env` and re-run `deploy.ps1`. `ACK_MODE=reaction` makes it react with :bank: without replying in a thread. `MEME_CHANNEL_IDS` takes a comma-separated list if you want more channels.
 - **Models:** `TAG_MODEL` and `SEARCH_MODEL` default to `claude-sonnet-5-5`. Set either to `claude-haiku-5-5` for cheaper tagging or searching.
 - **Cost:** a container app with one small replica running all the time, a storage account holding a few MB, and possibly a Basic container registry created by the cloud build. Expect a few dollars to roughly $20 a month on the Azure side, so check Cost Management after the first week. Claude usage at a channel's meme rate is small: roughly a cent or two per deposit or search.
-- **Remove everything:** `az group delete -n rg-memebank`. This deletes the stored memes too.
+- **Back up:** `python -m scripts.export --env-file .env.azure` copies the catalogue and every image to `.\memebank-backup`.
+- **Remove everything:** export first. The storage account has a delete lock, so see [docs/DEPLOY-AZURE.md](docs/DEPLOY-AZURE.md#12-removing-it) for removing the lock, then `az group delete -n rg-memebank`. This deletes the stored memes too.
 
 ## Code
 
@@ -104,7 +106,7 @@ memebank/
   store.py      AzureStore (Table + Blob) and LocalStore (SQLite + folder)
   images.py     download, resize for Claude, perceptual hash for reposts
   slack_app.py  Bolt event wiring (messages, link-preview edits, :bank: reactions)
-scripts/        backfill.py, import_local.py
+scripts/        backfill.py, import_local.py, export.py (backup to a folder)
 tests/          pytest; test_azure_store.py runs against Azurite with AZURITE=1
 deploy/         deploy.ps1
 ```

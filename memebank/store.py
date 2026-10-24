@@ -27,6 +27,7 @@ class Meme:
     permalink: str = ""
     caption: str = ""  # what the poster wrote alongside it
     banked_at: str = ""
+    withdrawn_at: str = ""  # set by "forget"; the row and image stay, so "restore" can undo it
 
     def catalogue_line(self) -> str:
         bits = [f"#{self.number}", self.title, "tags: " + ", ".join(self.tags), self.description]
@@ -67,17 +68,19 @@ class LocalStore:
             )
             self.db.commit()
 
-    def all(self) -> list[Meme]:
+    def all(self, include_withdrawn: bool = False) -> list[Meme]:
         with self._lock:
             rows = self.db.execute("SELECT data FROM memes ORDER BY number").fetchall()
-        return [Meme(**json.loads(r[0])) for r in rows]
+        memes = [Meme(**json.loads(r[0])) for r in rows]
+        return memes if include_withdrawn else [m for m in memes if not m.withdrawn_at]
 
-    def get(self, number: int) -> Meme | None:
+    def get(self, number: int, include_withdrawn: bool = False) -> Meme | None:
         with self._lock:
             row = self.db.execute("SELECT data FROM memes WHERE number = ?", (number,)).fetchone()
-        return Meme(**json.loads(row[0])) if row else None
+        meme = Meme(**json.loads(row[0])) if row else None
+        return meme if meme and (include_withdrawn or not meme.withdrawn_at) else None
 
-    def find_by_source(self, key: str) -> Meme | None:
+    def find_by_source(self, key: str) -> Meme | None:  # withdrawn ones too, so a re-react doesn't bank a copy
         with self._lock:
             row = self.db.execute("SELECT data FROM memes WHERE source_key = ?", (key,)).fetchone()
         return Meme(**json.loads(row[0])) if row else None
@@ -127,7 +130,7 @@ class AzureStore:
             try:
                 row = self.table.get_entity("meta", "counter")
             except ResourceNotFoundError:
-                start = max((m.number for m in self.all(refresh=True)), default=0)
+                start = max((m.number for m in self.all(refresh=True, include_withdrawn=True)), default=0)
                 try:
                     self.table.create_entity({"PartitionKey": "meta", "RowKey": "counter", "value": start})
                 except ResourceExistsError:
@@ -169,20 +172,20 @@ class AzureStore:
         with self._lock:
             self._cache = None
 
-    def all(self, refresh: bool = False) -> list[Meme]:
+    def all(self, refresh: bool = False, include_withdrawn: bool = False) -> list[Meme]:
         with self._lock:
             if refresh or self._cache is None or time.time() - self._cache_at > self.CACHE_SECONDS:
                 rows = self.table.query_entities(f"PartitionKey eq '{self.PARTITION}'")
                 self._cache = sorted((self._from_entity(r) for r in rows), key=lambda m: m.number)
                 self._cache_at = time.time()
-            return list(self._cache)
+            return [m for m in self._cache if include_withdrawn or not m.withdrawn_at]
 
-    def get(self, number: int) -> Meme | None:
-        return next((m for m in self.all() if m.number == number), None) or \
-            next((m for m in self.all(refresh=True) if m.number == number), None)
+    def get(self, number: int, include_withdrawn: bool = False) -> Meme | None:
+        return next((m for m in self.all(include_withdrawn=include_withdrawn) if m.number == number), None) or \
+            next((m for m in self.all(refresh=True, include_withdrawn=include_withdrawn) if m.number == number), None)
 
-    def find_by_source(self, key: str) -> Meme | None:
-        return next((m for m in self.all(refresh=True) if m.source_key == key), None)
+    def find_by_source(self, key: str) -> Meme | None:  # withdrawn ones too, so a re-react doesn't bank a copy
+        return next((m for m in self.all(refresh=True, include_withdrawn=True) if m.source_key == key), None)
 
     def get_image(self, meme: Meme) -> bytes:
         return self.blobs.download_blob(meme.blob_name).readall()
