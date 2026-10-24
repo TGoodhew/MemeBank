@@ -1,5 +1,6 @@
 """Feeds Slack-shaped events through the real Bolt app, with the Slack Web API faked out."""
 import time
+from concurrent.futures import Executor, Future
 from types import SimpleNamespace
 
 import pytest
@@ -59,7 +60,20 @@ def app_and_bank(monkeypatch):
     cfg = Config(slack_bot_token="xoxb-test", channel_ids=["CGEN"])
     bank = SpyBank()
     app = build_app(cfg, bank)
+    app.listener_runner.listener_executor = InlineExecutor()  # each send() finishes before the test checks
     return app, bank, history
+
+
+class InlineExecutor(Executor):
+    """Runs Bolt's listeners on the calling thread, so tests don't race the thread pool."""
+
+    def submit(self, fn, /, *args, **kwargs):
+        future = Future()
+        try:
+            future.set_result(fn(*args, **kwargs))
+        except BaseException as exc:  # noqa: BLE001
+            future.set_exception(exc)
+        return future
 
 
 def send(app, event):
@@ -70,7 +84,7 @@ def send(app, event):
 
 
 def wait_for(done, timeout=5.0):
-    """Bolt runs listeners on a thread pool after acking, so events can finish out of order."""
+    """For work a listener hands to another thread; listeners themselves run inline (InlineExecutor)."""
     deadline = time.time() + timeout
     while not done() and time.time() < deadline:
         time.sleep(0.01)
