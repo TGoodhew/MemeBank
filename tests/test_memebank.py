@@ -142,6 +142,13 @@ def test_classify(text, has_img, dm, expect):
     ("undo forget 4", "restore", 4, ""),
     ("bring back meme #4", "restore", 4, ""),
     ("retag 9", "retag", 9, ""),
+    ("tag #12 ilhan omar, squad", "tag", 12, "ilhan omar, squad"),
+    ("add tags to #3: Cabin Trip", "tag", 3, "Cabin Trip"),
+    ("tag meme 5 with kevin", "tag", 5, "kevin"),
+    ("untag #12 squad", "untag", 12, "squad"),
+    ("tag #12", "tag", 12, ""),  # not "tag #1 with 2"
+    ("untag #12", "untag", 12, ""),
+    ("tag #12 without context", "tag", 12, "without context"),
     ("could you find me the France meme?", "search", None, "the France meme"),
     ("What memes relate to France", "search", None, "What memes relate to France"),
 ])
@@ -239,7 +246,8 @@ def test_reaction_only_mode_posts_no_thread_reply(setup):
     bank, store, tagger, client = setup
     bank.ack_mode = "reaction"
     bank.deposit_message(client, "CGEN", slack_msg("1.0", "meme bank", "F1"))
-    assert client.named("reactions_add") and not client.named("chat_postMessage")
+    assert client.named("reactions_add")
+    assert [kw["channel"] for kw in client.named("chat_postMessage")] == ["UTONY"]  # nothing in the channel; the tag DM still goes
 
 
 # ---------------------------------------------------------------- withdrawals
@@ -367,6 +375,97 @@ def test_failed_export_leaves_no_stub_and_a_retry_completes_it(setup, tmp_path, 
     assert sorted(p.name for p in (out / "images").iterdir()) == [store.get(1).blob_name]  # no empty #2, no .part
     monkeypatch.setattr(store, "get_image", real)
     assert export(store, str(out)) == {"memes": 2, "withdrawn": 0, "downloaded": 1, "kept": 1}
+
+
+def test_anyone_can_add_tags_and_they_survive_a_retag(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    say = lambda: client.named("chat_postMessage")[-1]["text"]  # noqa: E731
+    bank.handle_ask(client, "CGEN", "UZAK", "tag #1 Ilhan Omar, #Squad, cuba")  # cuba is already one of Claude's
+    assert "with _ilhan omar, squad_" in say()
+    m = store.get(1)
+    assert m.extra_tags == ["ilhan omar", "squad"] and m.all_tags[-2:] == ["ilhan omar", "squad"]
+    bank.handle_ask(client, "CGEN", "UZAK", "tag #1 squad")
+    assert "already has those tags" in say()
+    bank.handle_ask(client, "CGEN", "UTONY", "retag #1")
+    assert "kept the tags people added: ilhan omar, squad" in say() and store.get(1).extra_tags == ["ilhan omar", "squad"]
+    assert search("the ilhan omar one", store.all(), tagger=None)[0].number == 1  # keyword fallback sees them
+    assert "ilhan omar" in store.get(1).catalogue_line()  # and so does Claude's pick
+
+
+def test_tag_with_no_words_asks_for_some_and_changes_nothing(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    before = (store.get(1).all_tags, store.get(2).all_tags)
+    bank.handle_ask(client, "CGEN", "UTONY", "tag #2")
+    assert "Give me some words to tag #2" in client.named("chat_postMessage")[-1]["text"]
+    bank.handle_ask(client, "CGEN", "UTONY", "untag #1")
+    assert "Which tag should I remove from #1" in client.named("chat_postMessage")[-1]["text"]
+    assert (store.get(1).all_tags, store.get(2).all_tags) == before
+
+
+def test_more_than_forty_added_tags_are_all_kept_up_to_the_limit(setup):
+    from memebank.core import MAX_EXTRA_TAGS
+
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    for start in range(0, MAX_EXTRA_TAGS, 25):
+        bank.handle_ask(client, "CGEN", "UZAK", "tag #1 " + ", ".join(f"word{i}" for i in range(start, start + 25)))
+    assert len(store.get(1).extra_tags) == MAX_EXTRA_TAGS and "word99" in store.get(1).all_tags
+    bank.handle_ask(client, "CGEN", "UZAK", "tag #1 one more")
+    assert "can't take more added tags (1 skipped" in client.named("chat_postMessage")[-1]["text"]
+
+
+def test_reaction_only_mode_still_gives_a_dm_deposit_its_tag_hint(setup):
+    bank, store, tagger, client = setup
+    bank.ack_mode = "reaction"
+    bank.deposit_message(client, "DTONY", slack_msg("100.1", "", "F1", user="UTONY"))
+    posts = client.named("chat_postMessage")
+    assert len(posts) == 1 and posts[0]["channel"] == "DTONY" and "Here are the tags I used" in posts[0]["text"]
+
+
+def test_only_poster_or_admin_can_untag(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    bank.handle_ask(client, "CGEN", "UZAK", "tag #1 squad")
+    bank.handle_ask(client, "CGEN", "UZAK", "untag #1 squad")
+    assert "Only whoever deposited" in client.named("chat_postMessage")[-1]["text"] and "squad" in store.get(1).all_tags
+    bank.handle_ask(client, "CGEN", "UTONY", "untag #1 squad, cigar")
+    assert "squad" not in store.get(1).all_tags and "cigar" not in store.get(1).all_tags
+
+
+def test_new_deposit_dms_the_depositor_the_tags_and_how_to_add_more(setup):
+    bank, store, tagger, client = setup
+    bank.deposit_message(client, "CGEN", slack_msg("100.1", "castro: a meme for the meme bank", "F1", user="UTONY"))
+    dm = [kw for kw in client.named("chat_postMessage") if kw["channel"] == "UTONY"]
+    assert len(dm) == 1 and "Banked *#1: Fidel island socialism*" in dm[0]["text"]
+    assert "fidel castro, cuba, socialism, cigar" in dm[0]["text"] and "tag #1" in dm[0]["text"]
+    client.calls.clear()
+    res = bank.deposit_message(client, "CGEN", slack_msg("200.1", "castro again, meme bank", "F1RESIZED", user="UTONY"))
+    assert res[0].status == "duplicate"
+    assert not [kw for kw in client.named("chat_postMessage") if kw["channel"] == "UTONY"]  # duplicates: no DM
+
+
+def test_reaction_deposit_dms_whoever_reacted(setup):
+    bank, store, tagger, client = setup
+    bank.deposit_message(client, "CGEN", slack_msg("100.1", "lol", "F1", user="UKEVIN"), banked_by="UTONY")
+    assert [kw["channel"] for kw in client.named("chat_postMessage")] == ["CGEN", "UTONY"]
+
+
+def test_no_tag_dm_for_backfill_or_when_turned_off(setup):
+    bank, store, tagger, client = setup
+    bank.deposit_message(client, "CGEN", slack_msg("1.0", "meme bank", "F1"), acknowledge=False)
+    bank.dm_tags = False
+    bank.deposit_message(client, "CGEN", slack_msg("2.0", "meme bank", "F2"))
+    assert [kw["channel"] for kw in client.named("chat_postMessage")] == ["CGEN"]  # just the thread reply for #2
+
+
+def test_dm_deposit_gets_the_tag_hint_in_its_own_thread(setup):
+    bank, store, tagger, client = setup
+    bank.deposit_message(client, "DTONY", slack_msg("100.1", "", "F1", user="UTONY"))
+    posts = client.named("chat_postMessage")
+    assert len(posts) == 1 and posts[0]["channel"] == "DTONY" and posts[0]["thread_ts"] == "100.1"
+    assert "Here are the tags I used" in posts[0]["text"] and "tag #1" in posts[0]["text"]
 
 
 def test_empty_vault_and_stats_and_help(setup):

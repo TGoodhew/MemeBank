@@ -101,7 +101,7 @@ $envVars = @(
     "AZURE_STORAGE_CONNECTION_STRING=secretref:storage-connection",
     "STORAGE_BACKEND=azure"
 )
-foreach ($k in "MEME_CHANNEL_IDS", "ADMIN_USER_IDS", "ACK_MODE", "BANK_REACTIONS", "TAG_MODEL", "SEARCH_MODEL") {
+foreach ($k in "MEME_CHANNEL_IDS", "ADMIN_USER_IDS", "ACK_MODE", "BANK_REACTIONS", "DM_TAGS", "TAG_MODEL", "SEARCH_MODEL") {
     if ($cfg[$k]) { $envVars += "$k=$($cfg[$k])" }
 }
 Invoke-Az containerapp update --name $AppName --resource-group $ResourceGroup `

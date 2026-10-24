@@ -38,8 +38,10 @@ def test_round_trip_and_delete(store):
     assert store.find_by_source("slack:F1").number == 1 and store.find_by_source("slack:nope") is None
     assert store.get_image(got) == b"\x89PNG fake"
     got.title = "Retitled"
+    got.extra_tags = ["ilhan omar", "squad"]
     store.put(got, None)
     assert store.get(1).title == "Retitled" and store.get_image(store.get(1)) == b"\x89PNG fake"
+    assert store.all(refresh=True)[0].extra_tags == ["ilhan omar", "squad"]
     store.delete(got)
     assert store.all(refresh=True) == []
 
