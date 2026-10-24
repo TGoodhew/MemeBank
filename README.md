@@ -89,6 +89,7 @@ Adjust the file names to match what's actually in Downloads. If the backfill alr
 ## Running it
 
 - **Logs:** `az containerapp logs show -n memebank -g rg-memebank --follow`
+- **Alerts:** set `ALERT_EMAIL` in `.env` and the deploy adds email alerts for a crash loop, logged errors, and the bot going quiet (no connected heartbeat for 2 hours). See [docs/DEPLOY-AZURE.md](docs/DEPLOY-AZURE.md#9-day-to-day).
 - **Settings:** edit `.env` and re-run `deploy.ps1`. `ACK_MODE=reaction` makes it react with :bank: without replying in a thread. `MEME_CHANNEL_IDS` takes a comma-separated list if you want more channels.
 - **Models:** `TAG_MODEL` and `SEARCH_MODEL` default to `claude-sonnet-5-5`. Set either to `claude-haiku-5-5` for cheaper tagging or searching.
 - **Cost:** a container app with one small replica running all the time, a storage account holding a few MB, and possibly a Basic container registry created by the cloud build. Expect a few dollars to roughly $20 a month on the Azure side, so check Cost Management after the first week. Claude usage at a channel's meme rate is small: roughly a cent or two per deposit or search.

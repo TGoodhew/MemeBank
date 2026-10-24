@@ -180,6 +180,15 @@ The bot picks up memes added by these scripts within a minute.
 - **Rotate a key:** put the new value in `.env` and re-run the script.
 - **Restart:** `az containerapp revision restart -n memebank -g rg-memebank --revision (az containerapp revision list -n memebank -g rg-memebank --query "[0].name" -o tsv)`
 - **See the app in the portal:** portal.azure.com, then **Resource groups**, then **rg-memebank**, then **memebank**. *Log stream* shows live logs, and *Revisions and replicas* shows health.
+- **Alerts:** with `ALERT_EMAIL` set in `.env`, the deploy script creates three alerts that email that address. Each emails once when it fires and again when it resolves:
+
+  | Alert | Fires when |
+  |---|---|
+  | `memebank-restarts` | The container restarts more than 3 times in an hour (a crash loop) |
+  | `memebank-errors` | The bot logs an `ERROR` or a traceback (a deposit, search, upload or Claude call failed) |
+  | `memebank-quiet` | No `Heartbeat: connected=True` line for 2 hours (the bot is hung, stopped or disconnected from Slack). It logs one about a minute after starting and then hourly |
+
+  They're under **Monitor → Alerts** in the portal, or in `rg-memebank` as *Alert rules*. Leave `ALERT_EMAIL` blank for no alerts.
 - **Look at the stored memes:** open the storage account and use *Storage browser*. Tables → `memes` is the catalogue, and Blob containers → `memes` holds the images.
 - **Back up the memes:** `python -m scripts.export --env-file .env.azure` copies the catalogue (`memes.json`) and every image to `.\memebank-backup`. Re-running it only downloads new images. Do this every so often, and always before removing anything.
 - **Undo a `forget`:** `hey meme bank, restore #12`. A forgotten meme is only hidden, so it keeps its number and image. Deleted or overwritten images are also kept for 30 days by blob soft delete, which you can see under the storage account's *Data protection* settings.
@@ -220,6 +229,8 @@ My estimate is a few dollars to about $20 a month in total. Check the real figur
 | Deploy fails with `AADSTS50076` … "you must use multi-factor authentication" | Azure requires MFA to create or change resources, while reads still work without it. With a personal Microsoft account, turn on two-step verification at account.microsoft.com/security. Then make the CLI sign in through the browser instead of Windows' silent sign-in: `az config set core.enable_broker_on_windows=false`, `az account clear`, `az login --tenant <tenant id>`. The browser sign-in has to ask for your second factor. |
 | `UnicodeEncodeError: 'charmap' codec can't encode…` from `az` | The CLI on Windows can't print some characters when its output is piped or redirected, for example the ⚡ in the bot's startup log. Run the command directly in a terminal, or use *Log stream* in the portal. The Dockerfile turns off pip's progress bar so the cloud-build log stays plain ASCII for the same reason. |
 | Replica keeps restarting | Run `az containerapp logs show -n memebank -g rg-memebank --type system`. Usually a missing setting. |
+| "Gone quiet" alert, or the bot doesn't answer | Check *Revisions and replicas* first: is a replica running? Then look in *Log stream* for the last `Heartbeat:` line. `connected=False` means the Slack connection dropped: check the `xapp-` token and Slack's status page. No heartbeat at all means the process is stuck or stopped: restart the revision (§9). |
+| "Errors" alert | In Log Analytics run `ContainerAppConsoleLogs_CL \| where Log_s has ' ERROR ' or Log_s has 'Traceback' \| order by TimeGenerated desc` to see what failed. Claude 401/403 is the key, Slack `invalid_auth` is the bot token, and 429/overloaded is temporary. |
 
 ---
 
