@@ -1,5 +1,7 @@
 # The Meme Bank
 
+[![Tests](https://github.com/TGoodhew/MemeBank/actions/workflows/test.yml/badge.svg)](https://github.com/TGoodhew/MemeBank/actions/workflows/test.yml)
+
 A Slack bot for #general that takes the running gag literally. When someone posts "a meme for the meme bank", it keeps a copy, has Claude look at the picture and tag it, and files it. Later anyone can ask for it back:
 
 > **hey meme bank, could you find me the France meme**
@@ -106,4 +108,4 @@ scripts/        backfill.py, import_local.py
 tests/          pytest; test_azure_store.py runs against Azurite with AZURITE=1
 deploy/         deploy.ps1
 ```
-Run the tests with `pip install pytest` and then `pytest`.
+Run the tests with `pip install pytest` and then `pytest`. The two `AzureStore` tests are skipped unless the Azurite storage emulator is running: start it with `npx azurite --inMemoryPersistence --skipApiVersionCheck --loose` and run `$env:AZURITE=1; pytest tests/test_azure_store.py`. GitHub Actions runs both on every push and pull request.

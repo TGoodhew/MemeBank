@@ -1,0 +1,60 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash  # -eo pipefail, so a failing pytest piped through tee still fails the step
+
+jobs:
+  unit:
+    name: Unit tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.15"]  # 3.12 is what the Dockerfile runs; 3.15 is what Tony's PC runs
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q
+
+  azure-store:
+    name: AzureStore against Azurite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt pytest
+      - name: Start Azurite (blob + table)
+        run: |
+          npx --yes azurite@3.37.0 --silent --inMemoryPersistence --skipApiVersionCheck --loose \
+            --blobHost 127.0.0.1 --tableHost 127.0.0.1 --queuePort 0 &
+          for _ in $(seq 60); do
+            (exec 3<>/dev/tcp/127.0.0.1/10000) 2>/dev/null && (exec 3<>/dev/tcp/127.0.0.1/10002) 2>/dev/null && exit 0
+            sleep 1
+          done
+          echo "Azurite didn't start" && exit 1
+      - name: Run the Azurite tests (and fail if they were skipped)
+        env:
+          AZURITE: "1"
+        run: |
+          python -m pytest tests/test_azure_store.py -v -rs | tee pytest.out
+          ! grep -q SKIPPED pytest.out
