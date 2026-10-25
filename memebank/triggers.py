@@ -99,7 +99,7 @@ _QUOTED = re.compile(r'"([^"]+)"|“([^”]+)”')
 
 
 def split_tags(text: str) -> list[str]:
-    """'"Trump screamer" and "Beanie Girl"' -> ['Trump screamer', 'Beanie Girl']. Quoted phrases stay whole
+    """'"Distracted boyfriend" and "Beanie Girl"' -> ['Distracted boyfriend', 'Beanie Girl']. Quoted phrases stay whole
     (so "rock and roll" can be one tag); the rest splits on commas, semicolons, & and the word "and"."""
     text = (text or "").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")  # Slack escapes these three
     pieces = _QUOTED.split(text)  # [outside, quote, quote, outside, quote, quote, outside, ...]
@@ -156,7 +156,7 @@ def parse_command(rest: str) -> Command:
     m = re.fullmatch(r"(?:retag|re-tag|redo)\s+(?:meme\s+)?#?(\d+)", low)
     if m:
         return Command("retag", int(m.group(1)))
-    # "tag #12 ilhan omar, squad": the words keep their own text (comma separated) in query. (?!\d) stops
+    # "tag #12 dave, cabin trip": the words keep their own text (comma separated) in query. (?!\d) stops
     # "tag #12" (no words) being read as "tag #1 with 2".
     m = re.fullmatch(r"(?:add\s+)?tags?\s+(?:to\s+)?(?:meme\s+)?#?(\d+)(?!\d)(?:\s+with\b)?(?:\s*[:,-]?\s*(.+))?",
                      raw, re.I | re.S)
@@ -165,7 +165,7 @@ def parse_command(rest: str) -> Command:
     m = re.fullmatch(r"(?:untag|remove\s+tags?)\s+(?:meme\s+)?#?(\d+)(?!\d)(?:\s*[:,-]?\s*(.+))?", raw, re.I | re.S)
     if m:
         return Command("untag", int(m.group(1)), query=(m.group(2) or "").strip())
-    # "Tag it "Trump screamer" and "Beanie Girl"": no number, so number=None. In a DM the bot fills in the meme
+    # "Tag it "Distracted boyfriend" and "Beanie Girl"": no number, so number=None. In a DM the bot fills in the meme
     # from its last "Banked #N" message there; anywhere else it asks which meme.
     m = re.fullmatch(r"(?:please\s+)?(?:tag\s+(?:it|this(?:\s+one)?|that(?:\s+one)?)|add\s+tags?)"
                      r"(?:\s+(?:with|as)\b)?(?:\s*[:,-]?\s*(.+))?", raw, re.I | re.S)

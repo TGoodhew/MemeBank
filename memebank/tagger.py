@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 log = logging.getLogger(__name__)
 
 TAG_SYSTEM = """You catalogue memes for a group of friends' Slack "meme bank" so they can find them later by \
-asking things like "find me the France meme" or "the one about socialism".
+asking things like "find me the France meme" or "the one about Mondays".
 
 Describe each image plainly and neutrally: what it shows and what the joke or point is. Don't editorialise, \
 soften or moralise; the friends just need to be able to find it again.
@@ -25,7 +25,7 @@ TAG_SCHEMA = {
     "properties": {
         "title": {
             "type": "string",
-            "description": "Short name people would use to ask for it, max 8 words, e.g. 'Fidel island socialism'",
+            "description": "Short name people would use to ask for it, max 8 words, e.g. 'Cat hates Monday meetings'",
         },
         "description": {"type": "string", "description": "1-2 sentences: what it shows and what the joke is"},
         "text_in_image": {"type": "string", "description": "All legible text in the image, verbatim; '' if none"},

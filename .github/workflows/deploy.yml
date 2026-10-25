@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 env:
-  APP: memebank
+  APP: ${{ vars.APP_NAME || 'memebank' }}  # the container app; set by setup-github-deploy.ps1
   RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP || 'rg-memebank' }}  # set by setup-github-deploy.ps1
 
 jobs:

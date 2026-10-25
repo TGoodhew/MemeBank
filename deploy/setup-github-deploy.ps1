@@ -15,7 +15,8 @@
   .\deploy\setup-github-deploy.ps1
 #>
 param(
-    [string]$ResourceGroup = "rg-memebank",
+    [string]$ResourceGroup = "rg-memebank",  # as given to deploy.ps1 (-ResourceGroup)
+    [string]$ContainerApp = "memebank",      # deploy.ps1's -AppName: the container app the workflow updates
     [string]$Repo = "",            # owner/name; taken from gh if blank
     [string]$AppName = "memebank-github-deploy"
 )
@@ -87,8 +88,10 @@ foreach ($kv in @(@("AZURE_CLIENT_ID", $appId), @("AZURE_TENANT_ID", $tenant), @
         if ($LASTEXITCODE -ne 0) { throw "gh variable delete $($kv[0]) failed" }
     }
 }
-& gh variable set RESOURCE_GROUP --repo $Repo --body $ResourceGroup  # the workflow deploys to this group
-if ($LASTEXITCODE -ne 0) { throw "gh variable set RESOURCE_GROUP failed" }
+foreach ($kv in @(@("RESOURCE_GROUP", $ResourceGroup), @("APP_NAME", $ContainerApp))) {  # what the workflow deploys to
+    & gh variable set $kv[0] --repo $Repo --body $kv[1]
+    if ($LASTEXITCODE -ne 0) { throw "gh variable set $($kv[0]) failed" }
+}
 
 Write-Host ""
 Write-Host "Done. Pushes to main that pass the tests now deploy themselves (Actions > Deploy)."
