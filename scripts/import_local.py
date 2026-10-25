@@ -1,6 +1,6 @@
 """Bank image files from your computer (e.g. memes that have aged out of Slack's history).
 
-    python -m scripts.import_local --env-file .env.azure "$env:USERPROFILE\\Downloads\\image.png" --date 2026-07-27 --caption "This meme needs to be added again to the meme bank"
+    python -m scripts.import_local --env-file .env.azure path/to/image.png --date 2026-07-27 --caption "a meme for the meme bank"
 
 Several files can be given at once; --date/--caption then apply to all of them.
 """

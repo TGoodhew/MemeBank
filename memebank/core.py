@@ -29,7 +29,7 @@ HELP = """*The Meme Bank* :bank:
 *Deposit:* post an image saying it's for the bank ("a meme for the meme bank", "store this in the meme bank", or :bank:), react to any image post with :bank:, or DM me an image. I'll keep a copy and tag it. (Just mentioning the meme bank with a picture gets you a DM asking if you meant it.)
 *Withdraw:* start a message with "hey meme bank," then ask:
 • `hey meme bank, find me the France meme`
-• `hey meme bank, what have you got on socialism?`
+• `hey meme bank, what have you got on Mondays?`
 • `hey meme bank, #12`  ·  `random`  ·  `stats`
 • `hey meme bank, tag #12 names, in-jokes` (anyone; `untag #12 word` for the poster or a bank manager)  ·  `retag #12` (Claude again)
 • `hey meme bank, forget #12` (asks a bank manager to remove it; they decide, and `restore #12` undoes it)
@@ -207,7 +207,7 @@ class MemeBank:
 
     def _tag_hint(self, meme: Meme) -> str:
         return (f"Here are the tags I used:\n_{', '.join(meme.all_tags)}_\n"
-                f"Want to add others? Reply here with `tag it cabin trip, kevin` (or just the words, in this thread), "
+                f"Want to add others? Reply here with `tag it cabin trip, team lunch` (or just the words, in this thread), "
                 f"or from anywhere: `hey meme bank, tag #{meme.number} names, in-jokes`")
 
     def _dm_tags(self, client, user: str, meme: Meme) -> None:

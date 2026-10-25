@@ -12,21 +12,25 @@ Slack workspace    ◄── outbound websocket ──  Container App "memebank"
                                                  └──►  Anthropic API (Claude)
 Container registry (created by the build) holds the bot's image.
 All of it lives in one resource group: rg-memebank.
-GitHub Actions (this repo) tests every change and deploys what's merged to main.
+GitHub Actions (your copy of this repo) tests every change and deploys what's merged to main.
 ```
+
+The commands in this guide use the default names `rg-memebank` (resource group) and `memebank` (container app). If you give `deploy.ps1` other names with `-ResourceGroup` or `-AppName`, use yours instead.
 
 ---
 
 ## 1. One-time prerequisites on your PC
 
-Clone the repo, then open **PowerShell** (Windows PowerShell 5.1 or PowerShell 7 both work) in its folder.
+Fork or clone the repo, then open **PowerShell** in its folder. On Windows, Windows PowerShell 5.1 or PowerShell 7 both work. On macOS or Linux, install PowerShell 7 and run `pwsh`; the scripts work there too.
 
-| Need | Check | Install if missing |
+| Need | Check | Install if missing (Windows) |
 |---|---|---|
 | Azure CLI | `az --version` | `winget install -e --id Microsoft.AzureCLI`, then open a new terminal |
 | Python 3.10+ | `python --version` | `winget install -e --id Python.Python.3.12` |
 | GitHub CLI, signed in (for the one-time Actions setup in §7) | `gh auth status` | `winget install -e --id GitHub.cli`, then `gh auth login` |
 | An Azure subscription you can create resources in | `az login`, then `az account list -o table` | portal.azure.com |
+
+On macOS, `brew install azure-cli gh python powershell` covers the tools. On Linux, use your package manager or each tool's install page.
 
 If PowerShell refuses to run the script ("running scripts is disabled"), allow it for this window only:
 
@@ -38,9 +42,11 @@ Install the bot's Python packages once. You'll need them for the local test and 
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\Activate.ps1
+.venv\Scripts\Activate.ps1          # macOS/Linux (pwsh): ./.venv/bin/Activate.ps1
 pip install -r requirements.txt
 ```
+
+The rest of this guide shows `.venv\Scripts\Activate.ps1`; on macOS or Linux, use the activation line above instead.
 
 ---
 
@@ -153,7 +159,7 @@ Look for `Meme Bank open for business (azure storage, 0 memes)`. Press Ctrl+C to
 **Then let GitHub deploy code changes** (one time, signed in with `az login` and `gh auth login`):
 
 ```powershell
-.\deploy\setup-github-deploy.ps1
+.\deploy\setup-github-deploy.ps1     # add -ResourceGroup <name> -ContainerApp <name> if you didn't use the defaults
 ```
 
 Do this in your own copy of the repo (a fork or a clone pushed to your account): the Deploy workflow deploys to whichever Azure subscription the repo's secrets point at. It creates an app registration that only that repo's `main` branch can sign in as (OIDC, so no Azure password or key is stored in GitHub), gives it Contributor on `rg-memebank` only, and stores the IDs the Deploy workflow reads as repo secrets (masked in its logs). From then on, merging to `main` ships code (see §9).
@@ -175,7 +181,7 @@ The dry run lists what it found. The real run banks the posts oldest first, so t
 To bank image files from your PC instead (for example, memes that have aged out of Slack's history), use the import script. Several files can be given at once:
 
 ```powershell
-python -m scripts.import_local --env-file .env.azure "$env:USERPROFILE\Downloads\image.png" --date 2026-07-27 --posted-by U0123456789 --caption "what was said when it was posted"
+python -m scripts.import_local --env-file .env.azure "path/to/image.png" --date 2026-07-27 --posted-by U0123456789 --caption "what was said when it was posted"
 ```
 
 A file that's already in the bank, or a resized copy of one, is recognised as a duplicate and skipped.

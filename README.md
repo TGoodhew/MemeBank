@@ -5,7 +5,7 @@
 A Slack bot for your meme channel that takes the running gag literally. When someone posts "a meme for the meme bank", it keeps a copy, has Claude look at the picture and tag it, and files it. Later anyone can ask for it back:
 
 > **hey meme bank, could you find me the France meme**
-> **hey meme bank, what have you got on socialism?**
+> **hey meme bank, what have you got on Mondays?**
 
 It reposts the best match with its number, and lists any runners-up.
 
@@ -27,7 +27,7 @@ Because the bank keeps its own copy of every image, a meme survives after Slack'
 | `hey meme bank, stats` | how many memes it has, plus the most common tags |
 | `hey meme bank, forget #12` | from a bank manager (ADMIN_USER_IDS): takes it out of the vault (hidden, not deleted). From anyone else: asks the bank managers by DM, and they decide |
 | `hey meme bank, restore #12` | puts a forgotten meme back, with the same number (bank managers only) |
-| `hey meme bank, tag #12 ilhan omar, cabin trip` | adds tags (anyone can). Use it for names and in-jokes: Claude only names people whose names are written in the image or the caption |
+| `hey meme bank, tag #12 dave, cabin trip` | adds tags (anyone can). Use it for names and in-jokes: Claude only names people whose names are written in the image or the caption |
 | `hey meme bank, untag #12 cabin trip` | removes a tag (the person who deposited it, or a bank manager) |
 | `hey meme bank, retag #12` | has Claude tag it again. Tags people added are kept |
 | `hey meme bank`, `hey meme bank, help`, or a question about the bot ("how do you work?", "what can you do?") | shows the help |
@@ -63,7 +63,7 @@ You need a Slack workspace where you can add apps, an Anthropic API key, an Azur
 
 **4. Optional: try it on your PC first**
 ```powershell
-python -m venv .venv; .venv\Scripts\Activate.ps1
+python -m venv .venv; .venv\Scripts\Activate.ps1      # macOS/Linux (pwsh): ./.venv/bin/Activate.ps1
 pip install -r requirements.txt
 python -m memebank          # STORAGE_BACKEND=local keeps everything in .\memebank-data
 ```
@@ -79,7 +79,7 @@ The script creates the resource group, the storage account, and the container ap
 **6. Let GitHub deploy code changes**
 ```powershell
 gh auth login
-.\deploy\setup-github-deploy.ps1
+.\deploy\setup-github-deploy.ps1     # add -ResourceGroup / -ContainerApp if you changed them in step 5
 ```
 After this one-time setup, every merge to `main` that passes the tests deploys itself (Actions → Deploy).
 
@@ -92,7 +92,7 @@ The backfill can only see posts Slack still shows, which on the free plan means 
 
 To bank image files from your PC (for example, memes that have aged out of Slack), use `scripts.import_local`:
 ```powershell
-python -m scripts.import_local --env-file .env.azure "$env:USERPROFILE\Downloads\image.png" --date 2026-07-27 --posted-by U0123456789 --caption "what was said when it was posted"
+python -m scripts.import_local --env-file .env.azure "path/to/image.png" --date 2026-07-27 --posted-by U0123456789 --caption "what was said when it was posted"
 ```
 A file that's already in the bank is recognised as a duplicate and skipped.
 
