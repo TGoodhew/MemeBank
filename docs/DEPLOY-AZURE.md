@@ -42,7 +42,7 @@ Install the bot's Python packages once. You'll need them for the local test and 
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\Activate.ps1          # macOS/Linux: . .venv/bin/activate (or ./.venv/bin/Activate.ps1 in pwsh)
+.venv\Scripts\Activate.ps1          # macOS/Linux (pwsh): ./.venv/bin/Activate.ps1
 pip install -r requirements.txt
 ```
 

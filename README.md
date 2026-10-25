@@ -63,7 +63,7 @@ You need a Slack workspace where you can add apps, an Anthropic API key, an Azur
 
 **4. Optional: try it on your PC first**
 ```powershell
-python -m venv .venv; .venv\Scripts\Activate.ps1      # macOS/Linux: . .venv/bin/activate
+python -m venv .venv; .venv\Scripts\Activate.ps1      # macOS/Linux (pwsh): ./.venv/bin/Activate.ps1
 pip install -r requirements.txt
 python -m memebank          # STORAGE_BACKEND=local keeps everything in .\memebank-data
 ```
