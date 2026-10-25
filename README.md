@@ -28,9 +28,9 @@ Because the bank keeps its own copy of every image, a meme survives after Slack'
 | `hey meme bank, forget #12` | from a bank manager (ADMIN_USER_IDS): takes it out of the vault (hidden, not deleted). From anyone else: asks the bank managers by DM, and they decide |
 | `hey meme bank, restore #12` | puts a forgotten meme back, with the same number (bank managers only) |
 | `hey meme bank, tag #12 ilhan omar, cabin trip` | adds tags (anyone can). Use it for names and in-jokes: Claude only names people whose names are written in the image or the caption |
-| `hey meme bank, untag #12 cabin trip` | removes a tag (the person who deposited it, or an admin) |
+| `hey meme bank, untag #12 cabin trip` | removes a tag (the person who deposited it, or a bank manager) |
 | `hey meme bank, retag #12` | has Claude tag it again. Tags people added are kept |
-| `hey meme bank` or `hey meme bank, help` | shows the help |
+| `hey meme bank`, `hey meme bank, help`, or a question about the bot ("how do you work?", "what can you do?") | shows the help |
 
 It also responds to "yo/hi/ok meme bank …", "Meme bank: …", an @mention, or a DM, where everything you type without an image is treated as a question. Plain chat that happens to mention the meme bank, like "this is why the meme bank is important", gets ignored. If it has an image, the poster gets a DM asking whether to bank it, and nothing is banked unless they say yes. Every meme the bank posts ends with its number and how to tag it or ask for its removal.
 
