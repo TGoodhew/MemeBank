@@ -259,6 +259,11 @@ def test_classify(text, has_img, dm, expect):
     ("would you mind please removing the tag cabin trip", "untag", None, "cabin trip"),
     ("would you mind re-tagging it", "retag", None, ""),
     ("would you mind finding the France meme", "search", None, "the France meme"),
+    ("please would you mind restoring #12", "restore", 12, ""),  # manners stacked up
+    ("please would you mind finding the France meme", "search", None, "the France meme"),
+    ("Finding Nemo", "search", None, "Finding Nemo"),  # a title, not manners
+    ("giving thanks", "search", None, "giving thanks"),
+    ("showing off", "search", None, "showing off"),
     ("remove this from the bank", "forget", None, ""),
     ("remove it from the vault", "forget", None, ""),
     ("redo the tags", "retag", None, ""),

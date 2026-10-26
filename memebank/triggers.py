@@ -144,9 +144,12 @@ def split_tags(text: str) -> list[str]:
 
 
 _FILLER = re.compile(
-    r"^(?:(?:(?:would|do)\s+you\s+mind|(?:can|could|would|will)\s+you)\s+)?(?:please\s+)?"
-    r"(?:(?:find(?:ing)?|show(?:ing)?|get(?:ting)?|giv(?:e|ing)|fetch(?:ing)?|dig(?:ging)?\s+up|pull(?:ing)?\s+up"
-    r"|bring(?:ing)?\s+up|post(?:ing)?|grab(?:bing)?)\s+(?:me\s+|us\s+)?)?",
+    # the "-ing" forms only after "would you mind", so a search for "Finding Nemo" keeps its first word
+    r"^(?:(?:please\s+)?(?:would|do)\s+you\s+mind\s+(?:please\s+)?"
+    r"(?:(?:finding|showing|getting|giving|fetching|digging\s+up|pulling\s+up|bringing\s+up|posting|grabbing)\s+"
+    r"(?:me\s+|us\s+)?)?"
+    r"|(?:(?:can|could|would|will)\s+you\s+)?(?:please\s+)?"
+    r"(?:(?:find|show|get|give|fetch|dig\s+up|pull\s+up|bring\s+up|post|grab)\s+(?:me\s+|us\s+)?)?)",
     re.I,
 )
 
@@ -189,7 +192,6 @@ def _number(digits: str | None) -> int | None:
 # Manners around a command: "can you please forget #12", "#12 please", "show #12, thanks!"
 _POLITE_START = re.compile(r"^(?:(?:(?:would|do)\s+you\s+mind|(?:can|could|would|will)\s+you"
                            r"|(?:i'?d|i\s+would)\s+like\s+you\s+to|kindly|please|pls|plz)[\s,]+)+", re.I)
-_MIND = re.compile(r"(?:would|do)\s+you\s+mind\b", re.I)
 # "would you mind restoring #12": the command word it stands for
 _GERUNDS = {"tagging": "tag", "untagging": "untag", "retagging": "retag", "re-tagging": "re-tag", "redoing": "redo",
             "adding": "add", "removing": "remove", "deleting": "delete", "dropping": "drop", "taking": "take",
@@ -203,8 +205,9 @@ _POLITE_END = re.compile(r"(?:[\s,]+(?:please|pls|plz|thanks|thank\s+you|thx|ty|
 
 
 def _without_manners(raw: str) -> str:
-    plain = _POLITE_START.sub("", raw)
-    if _MIND.match(raw):  # "would you mind restoring #12" -> "restore #12"
+    manners = _POLITE_START.match(raw)
+    plain = raw[manners.end():] if manners else raw
+    if manners and re.search(r"\bmind\b", manners.group(), re.I):  # "(please) would you mind restoring #12"
         plain = re.sub(r"^[\w-]+", lambda m: _GERUNDS.get(m.group().lower(), m.group()), plain)
     return _POLITE_END.sub("", plain).strip().rstrip("?!.,: ")
 
