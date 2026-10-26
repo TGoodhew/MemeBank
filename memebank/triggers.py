@@ -189,6 +189,19 @@ def _number(digits: str | None) -> int | None:
     return int(digits) if digits else None
 
 
+# Words that make a message read like an instruction rather than a search, so it's worth asking Claude what was meant
+# when the patterns below didn't recognise it: "chuck too real on this one", "this deserves a #mood tag".
+_INSTRUCTION_RE = re.compile(
+    r"^\W*(?:(?:please|pls|can\s+you|could\s+you|would\s+you|will\s+you|kindly)\s+)*"
+    r"(?:add|tag|label|mark|chuck|stick|slap|put|throw|untag|remove|drop|delete|get\s+rid|take|strip|forget|retag"
+    r"|redo|restore|undo|bring)\b"
+    r"|\btags?\b", re.I)
+
+
+def looks_like_instruction(text: str) -> bool:
+    return bool(_INSTRUCTION_RE.search(text or ""))
+
+
 # Manners around a command: "can you please forget #12", "#12 please", "show #12, thanks!"
 _POLITE_START = re.compile(r"^(?:(?:(?:would|do)\s+you\s+mind|(?:can|could|would|will)\s+you"
                            r"|(?:i'?d|i\s+would)\s+like\s+you\s+to|kindly|please|pls|plz)[\s,]+)+", re.I)

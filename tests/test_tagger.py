@@ -6,7 +6,7 @@ import anthropic
 import httpx2
 import pytest
 
-from memebank.tagger import FALLBACK_BETA, PICK_SCHEMA, TAG_SCHEMA, ClaudeTagger, TaggerError
+from memebank.tagger import FALLBACK_BETA, INTERPRET_SCHEMA, PICK_SCHEMA, TAG_SCHEMA, ClaudeTagger, TaggerError
 
 
 class FakeAnthropic:
@@ -71,3 +71,19 @@ def test_failures_become_short_messages_for_the_channel(client, says):
     with pytest.raises(TaggerError, match=says) as e:
         tagger(client).tag(b"x", "image/png")
     assert "invalid_request_error" not in str(e.value) and "{" not in str(e.value)
+
+
+def test_interpret_asks_the_search_model_and_tidies_the_answer():
+    client = FakeAnthropic({"command": "tag", "number": 0, "tags": ["#tooReal", "Too Real"], "query": "", "sure": True})
+    t = ClaudeTagger("sk-ant-test", tag_model="claude-haiku-5-5", search_model="claude-sonnet-5-5", client=client)
+    meant = t.interpret("chuck #tooReal on this one")
+    req = client.requests[0]
+    assert req["model"] == "claude-sonnet-5-5"
+    assert req["output_config"] == {"format": {"type": "json_schema", "schema": INTERPRET_SCHEMA}}
+    assert "<message>\nchuck #tooReal on this one\n</message>" in req["messages"][0]["content"]
+    assert meant == {"command": "tag", "number": None, "tags": ["tooreal", "too real"], "query": "", "sure": True}
+
+
+def test_interpret_treats_an_unknown_command_as_a_search():
+    client = FakeAnthropic({"command": "launch", "number": 3, "tags": [], "query": "x", "sure": True})
+    assert tagger(client).interpret("launch it")["command"] == "search"

@@ -44,6 +44,8 @@ class FakeTagger:
         self.fail_pick = fail_pick
         self.tag_calls = 0
         self.pick_calls = []
+        self.interpret_calls = []
+        self.meant = {}  # what interpret() says a loosely worded message means (None: Claude unreachable)
 
     def tag(self, image, media_type, caption=""):
         assert media_type in ("image/png", "image/jpeg") and len(image) < 5_000_000
@@ -52,6 +54,12 @@ class FakeTagger:
             if key in caption.lower():
                 return tags
         return Tags("Generic meme", "A meme.", "", ["meme"])
+
+    def interpret(self, message):
+        self.interpret_calls.append(message)
+        if self.meant is None:
+            raise RuntimeError("API down")
+        return {"command": "search", "number": None, "tags": [], "query": message, "sure": True, **self.meant}
 
     def pick(self, query, catalogue):
         self.pick_calls.append((query, catalogue))
@@ -882,3 +890,49 @@ def test_a_long_run_of_manners_is_parsed_quickly():
     parse_command("forget #12" + "  please" * 3000 + " x")  # over it: not looked at for manners
     parse_command("#12" + ", thanks!!" * 3000)
     assert time.perf_counter() - start < 0.5
+
+
+# ---------------------------------------------------------------- Claude for wording the patterns miss (#59)
+def test_claude_maps_a_loose_instruction_to_a_command(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    tagger.meant = {"command": "tag", "tags": ["too real", "rock and roll"]}
+    bank.handle_ask(client, "CGEN", "UZAK", "chuck too real and rock and roll on this one", about=2)
+    assert tagger.interpret_calls == ["chuck too real and rock and roll on this one"]
+    assert "with _too real, rock and roll_" in client.named("chat_postMessage")[-1]["text"]  # what it understood
+    assert store.get(2).extra_tags == ["too real", "rock and roll"]
+
+
+def test_a_command_claude_found_keeps_its_permissions(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    tagger.meant = {"command": "forget", "number": 1}
+    bank.handle_ask(client, "CGEN", "UZAK", "get rid of number one please")  # not a bank manager: it only asks
+    assert not store.get(1).withdrawn_at
+    assert "I've asked a bank manager to remove #1" in client.named("chat_postMessage")[-1]["text"]
+
+
+def test_when_claude_isnt_sure_it_asks(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    tagger.meant = {"command": "untag", "tags": ["cabin trip"], "sure": False}
+    bank.handle_ask(client, "CGEN", "UKEVIN", "drop cabin trip", about=2)
+    assert client.named("chat_postMessage")[-1]["text"] == "Did you mean `hey meme bank, untag this cabin trip`?"
+
+
+def test_when_claude_cant_be_reached_its_a_search_as_before(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    tagger.meant = None
+    tagger.picks = lambda q: [2]
+    bank.handle_ask(client, "CGEN", "UZAK", "chuck too real on the baguette one")
+    assert client.named("files_upload_v2")[-1]["initial_comment"].startswith("*#2: Baguette diplomacy*")
+    assert store.get(2).extra_tags == []
+
+
+@pytest.mark.parametrize("text", ["France meme", "the one about Mondays", "tag #12 cabin trip", "random"])
+def test_plain_searches_and_known_commands_dont_ask_claude_what_they_meant(setup, text):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    bank.handle_ask(client, "CGEN", "UZAK", text)
+    assert tagger.interpret_calls == []
