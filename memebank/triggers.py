@@ -112,7 +112,7 @@ def _hashtag_words(tag: str) -> str:
 
 def hashtags_as_words(text: str) -> str:
     """'#tooReal memes' -> 'too real memes': hashtags in the form they're stored in, for searching."""
-    return _HASHTAG.sub(lambda m: _hashtag_words(m.group()), text or "")
+    return _HASHTAG.sub(lambda m: _hashtag_words(m.group()).lower(), text or "")
 
 
 def split_tags(text: str) -> list[str]:
