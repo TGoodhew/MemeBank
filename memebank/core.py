@@ -264,10 +264,8 @@ class MemeBank:
             return Command("search", query=meant["query"] or cmd.query)
         target = f"#{number}" if number else "this"
         if name in ("tag", "untag"):
-            understood = Command(name, number, query=", ".join(f'"{t}"' for t in tags))  # "rock and roll" stays one tag
-            # the suggestion quotes only what needs it, so typing it back gives the same tags
-            shown = ", ".join(f'"{t}"' if re.search(r"[,;&]|\band\b", t) else t for t in tags)
-            said = f"{name} {target} {shown}"
+            understood = Command(name, number, query=", ".join(tags), tags=tags)
+            said = self._suggest_tags(name, number, target, tags)
         elif name == "get" and not number:  # "show me this one": it's already in view, so say which it is instead
             understood, said = Command("info"), "what number is this?"
         elif name in NUMBERED:
@@ -278,6 +276,17 @@ class MemeBank:
         if not meant["sure"]:
             return Command("clarify", query=said.strip())
         return understood
+
+    @staticmethod
+    def _suggest_tags(name: str, number: int | None, target: str, tags: list[str]) -> str:
+        """A tag/untag command to suggest that, typed back, gives these same tags: plain if that works, else quoted
+        ("tag this with love" would tag "love"; "tag this cheers" would lose "cheers" as manners)."""
+        plain = f"{name} {target} {', '.join(tags)}"
+        back = parse_command(plain)
+        if (back.name, back.number, clean_tags(split_tags(back.query))) == (name, number, clean_tags(tags)):
+            return plain
+        quoted = ", ".join(f"“{t}”" if '"' in t else f'"{t}"' for t in tags)  # curly quotes around a tag with " in
+        return f"{name} {target} {quoted}"
 
     def handle_ask(self, client, channel: str, user: str, rest: str, thread_ts: str | None = None,
                    about: int | None = None, cmd: Command | None = None) -> Command:
@@ -350,7 +359,7 @@ class MemeBank:
                     self._say(client, channel, f"I couldn't reach a bank manager just now, so #{n} is unchanged. "
                                                f"Try `hey meme bank, forget #{n}` again in a bit.", thread_ts)
         elif cmd.name == "tag":  # anyone can add tags
-            words = clean_tags(split_tags(cmd.query))
+            words = clean_tags(cmd.tags if cmd.tags is not None else split_tags(cmd.query))
             new = [t for t in words if t not in meme.all_tags]
             had = [t for t in words if t in meme.all_tags]
             added = new[:max(0, MAX_EXTRA_TAGS - len(meme.extra_tags))]
@@ -368,7 +377,7 @@ class MemeBank:
             else:
                 self._say(client, channel, f"#{n} already has those tags.", thread_ts)
         elif cmd.name == "untag":
-            words = clean_tags(split_tags(cmd.query))
+            words = clean_tags(cmd.tags if cmd.tags is not None else split_tags(cmd.query))
             # spaces don't count, so "#tooreal" takes off "too real" (what "#tooReal" was stored as) and vice versa
             unspaced = {w.replace(" ", "") for w in words}
             removed = [t for t in meme.all_tags if t.replace(" ", "") in unspaced]

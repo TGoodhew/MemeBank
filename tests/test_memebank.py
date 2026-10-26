@@ -944,7 +944,7 @@ def test_the_did_you_mean_keeps_the_quotes_that_hold_a_tag_together(setup):
     tagger.meant = {"command": "tag", "tags": ["rock and roll", "cabin trip"], "sure": False}
     bank.handle_ask(client, "CGEN", "UZAK", "chuck rock and roll and cabin trip on it", about=2)
     said = client.named("chat_postMessage")[-1]["text"]
-    assert said == 'Did you mean `hey meme bank, tag this "rock and roll", cabin trip`?'
+    assert said == 'Did you mean `hey meme bank, tag this "rock and roll", "cabin trip"`?'
     bank.handle_ask(client, "CGEN", "UZAK", 'tag this "rock and roll", cabin trip', about=2)  # typing it back
     assert store.get(2).extra_tags == ["rock and roll", "cabin trip"]
 
@@ -959,3 +959,37 @@ def test_show_this_one_says_which_it_is_and_unsure_asks_rather_than_posting(setu
     bank.handle_ask(client, "CGEN", "UZAK", "put this one up again", about=2)
     assert client.named("chat_postMessage")[-1]["text"].startswith("That's *#2: Baguette diplomacy*")
     assert not client.named("files_upload_v2")
+
+
+
+@pytest.mark.parametrize("tags", [["with love"], ["cheers"], ["too real"], ['he said "no"'], ["rock and roll", "x"]])
+def test_every_did_you_mean_types_back_as_the_same_tags(setup, tags):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    tagger.meant = {"command": "tag", "tags": tags, "sure": False}
+    bank.handle_ask(client, "CGEN", "UZAK", "chuck these on it", about=2)
+    suggestion = client.named("chat_postMessage")[-1]["text"].split("`hey meme bank, ")[1].rsplit("`", 1)[0]
+    tagger.meant = {}
+    bank.handle_ask(client, "CGEN", "UZAK", suggestion, about=2)
+    assert store.get(2).extra_tags == tags
+
+
+def test_tags_claude_found_are_kept_whole_even_with_quotes_in_them(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    tagger.meant = {"command": "tag", "tags": ['he said "no"']}
+    bank.handle_ask(client, "CGEN", "UZAK", "chuck he said no on this", about=2)
+    assert store.get(2).extra_tags == ['he said "no"']
+    tagger.meant = {"command": "untag", "tags": ['he said "no"']}
+    bank.handle_ask(client, "CGEN", "UKEVIN", "get rid of that he said no tag", about=2)
+    assert store.get(2).extra_tags == []
+
+
+@pytest.mark.parametrize("text", ["plz chuck too real on this one", "I'd like you to chuck too real on this one",
+                                  "would you mind, chuck too real on this one"])
+def test_manners_dont_stop_claude_being_asked(setup, text):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    tagger.meant = {"command": "tag", "tags": ["too real"]}
+    bank.handle_ask(client, "CGEN", "UZAK", text, about=2)
+    assert tagger.interpret_calls == [text] and store.get(2).extra_tags == ["too real"]

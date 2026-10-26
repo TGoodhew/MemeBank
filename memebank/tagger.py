@@ -50,6 +50,7 @@ PICK_SCHEMA = {
     "additionalProperties": False,
 }
 
+MAX_INSTRUCTION = 1000  # characters: an instruction is a sentence or two
 COMMANDS = ["tag", "untag", "retag", "forget", "restore", "get", "info", "help", "random", "stats", "search"]
 
 INTERPRET_SYSTEM = """You read messages sent to a friends' Slack "meme bank" bot and work out which of its commands \
@@ -175,9 +176,11 @@ class ClaudeTagger:
         return [int(n) for n in nums if str(n).lstrip("-").isdigit()][:5]
 
     def interpret(self, message: str) -> dict:
-        """Which command a loosely worded message means: {"command", "number", "tags", "query", "sure"}."""
-        d = self._ask(self.search_model, INTERPRET_SYSTEM, INTERPRET_SCHEMA,
-                      f"<message>\n{message[:1000]}\n</message>")
+        """Which command a loosely worded message means: {"command", "number", "tags", "query", "sure"}. A message
+        longer than MAX_INSTRUCTION is a search without asking: cut short, it could lose the meme it names."""
+        if len(message) > MAX_INSTRUCTION:
+            return {"command": "search", "number": None, "tags": [], "query": message, "sure": True}
+        d = self._ask(self.search_model, INTERPRET_SYSTEM, INTERPRET_SCHEMA, f"<message>\n{message}\n</message>")
         number = d.get("number")
         return {
             "command": d.get("command") if d.get("command") in COMMANDS else "search",

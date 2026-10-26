@@ -87,3 +87,11 @@ def test_interpret_asks_the_search_model_and_tidies_the_answer():
 def test_interpret_treats_an_unknown_command_as_a_search():
     client = FakeAnthropic({"command": "launch", "number": 3, "tags": [], "query": "x", "sure": True})
     assert tagger(client).interpret("launch it")["command"] == "search"
+
+
+
+def test_a_message_too_long_to_send_whole_is_a_search_without_asking():
+    client = FakeAnthropic({"command": "tag", "number": None, "tags": ["x"], "query": "", "sure": True})
+    long = "chuck too real on " + "the one with the cat and the ladder, " * 40 + "#12"
+    assert len(long) > 1000
+    assert tagger(client).interpret(long)["command"] == "search" and client.requests == []

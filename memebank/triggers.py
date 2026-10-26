@@ -97,6 +97,7 @@ class Command:
     query: str = ""
     or_search: bool = False  # just hashtags ("#mondays"): tags for the meme being talked about, else a search
     search_query: str = ""  # with or_search: what that search is for, if not just the hashtags ("#paris thank you")
+    tags: list[str] | None = None  # tag/untag: the tags themselves, when Claude has already split them out
 
 
 NUMBERED = {"get", "info", "forget", "restore", "retag", "tag", "untag"}
@@ -192,14 +193,14 @@ def _number(digits: str | None) -> int | None:
 # Words that make a message read like an instruction rather than a search, so it's worth asking Claude what was meant
 # when the patterns below didn't recognise it: "chuck too real on this one", "this deserves a #mood tag".
 _INSTRUCTION_RE = re.compile(
-    r"^\W*(?:(?:please|pls|can\s+you|could\s+you|would\s+you|will\s+you|kindly)\s+)*"
-    r"(?:add|tag|label|mark|chuck|stick|slap|put|throw|untag|remove|drop|delete|get\s+rid|take|strip|forget|retag"
+    r"^\W*(?:add|tag|label|mark|chuck|stick|slap|put|throw|untag|remove|drop|delete|get\s+rid|take|strip|forget|retag"
     r"|redo|restore|undo|bring)\b"
     r"|\btags?\b", re.I)
 
 
 def looks_like_instruction(text: str) -> bool:
-    return bool(_INSTRUCTION_RE.search(text or ""))
+    """After the same manners parse_command allows ("plz", "I'd like you to", "would you mind ...")."""
+    return bool(_INSTRUCTION_RE.search(_POLITE_START.sub("", (text or "").strip())))
 
 
 # Manners around a command: "can you please forget #12", "#12 please", "show #12, thanks!"
