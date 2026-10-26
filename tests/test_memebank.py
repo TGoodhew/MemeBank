@@ -149,6 +149,9 @@ def setup(tmp_path):
     ("meme bank is great", False, False, None),
     (f"<@{BOT}> find the socialism one", False, False, ("ask", "find the socialism one")),
     (f"<@{BOT}> here you go", True, False, ("bank", "")),
+    (f"hey <@{BOT}> random", False, False, ("ask", "random")),  # the greeting is for the bot (#58)
+    (f"<@{BOT}> hi, random", False, False, ("ask", "random")),
+    (f"<@{BOT}> hey", False, False, ("ask", "")),
     ("find the castro one", False, True, ("ask", "find the castro one")),
     ("no words needed", True, True, ("bank", "")),
 ])
@@ -237,6 +240,34 @@ def test_classify(text, has_img, dm, expect):
     ("remove the France meme", "search", None, "remove the France meme"),
     ("add this to the meme bank", "search", None, "add this to the meme bank"),
     ("delete #12", "forget", 12, ""),
+    # manners, and "this one" for every numbered command (#58)
+    ("can you tag #12 cabin trip", "tag", 12, "cabin trip"),
+    ("tag #12 cabin trip please", "tag", 12, "cabin trip"),
+    ("could you please forget #12", "forget", 12, ""),
+    ("forget #12, thanks!", "forget", 12, ""),
+    ("#12 please", "get", 12, ""),
+    ("show #12 thanks", "get", 12, ""),
+    ("random please", "random", None, ""),
+    ("can you show me stats please", "stats", None, ""),
+    ("i'd like you to retag this", "retag", None, ""),
+    ("pls add a tag #tooReal", "tag", None, "#tooReal"),
+    ("remove this from the bank", "forget", None, ""),
+    ("remove it from the vault", "forget", None, ""),
+    ("redo the tags", "retag", None, ""),
+    ("redo the tags on #12", "retag", 12, ""),
+    ("re-tag it", "retag", None, ""),
+    ("bring this back", "restore", None, ""),
+    ("bring #4 back", "restore", 4, ""),
+    ("what number is this?", "info", None, ""),
+    ("which one is this?", "info", None, ""),
+    ("what's this one's number", "info", None, ""),
+    ("what are the tags on #12?", "info", 12, ""),
+    ("show tags for this", "info", None, ""),
+    ("tags?", "info", None, ""),
+    ("how is this tagged", "info", None, ""),
+    ("find the please-clap meme", "search", None, "the please-clap meme"),
+    ("show me thank you memes", "search", None, "thank you memes"),
+    ("the remove kebab one", "search", None, "the remove kebab one"),
     ("could you find me the France meme?", "search", None, "the France meme"),
     ("What memes relate to France", "search", None, "What memes relate to France"),
     # questions about the bot itself are help, however they're worded (#50)
@@ -570,6 +601,17 @@ def test_hashtags_are_stored_as_words_and_untag_ignores_the_spaces(setup):
     assert "with _too real, mondays_" in say() and store.get(2).extra_tags == ["too real", "mondays"]
     bank.handle_ask(client, "CGEN", "UKEVIN", "take #tooreal off", about=2)
     assert "Removed _too real_" in say() and store.get(2).extra_tags == ["mondays"]
+
+
+def test_info_gives_the_number_and_tags_without_posting_the_picture(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    bank.handle_ask(client, "CGEN", "UZAK", "what number is this?", about=2)
+    text = client.named("chat_postMessage")[-1]["text"]
+    assert text.startswith("That's *#2: Baguette diplomacy*") and "paris, beret, baguette" in text
+    assert not client.named("files_upload_v2")
+    bank.handle_ask(client, "CGEN", "UZAK", "tags?")  # nothing to point at
+    assert "`hey meme bank, what are the tags on #12`" in client.named("chat_postMessage")[-1]["text"]
 
 
 def test_a_bare_hashtag_tags_the_meme_in_view_or_else_searches(setup):

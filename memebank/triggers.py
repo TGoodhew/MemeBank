@@ -53,6 +53,7 @@ ASK_WITH_GREETING = re.compile(
 )
 # "Meme bank, France" / "meme bank: random" (needs the punctuation so "meme bank is great" isn't a question)
 ASK_WITH_PUNCT = re.compile(r"^\s*(?:the\s+)?meme[\s-]?bank\s*[,:!?]\s*(?P<rest>.*)$", re.I | re.S)
+_LEADING_GREETING = re.compile(rf"^\s*{_GREETING}\b[\s,:;!.-]*", re.I)
 MENTION_RE = re.compile(r"<@([A-Z0-9]+)(?:\|[^>]*)?>")
 
 
@@ -78,7 +79,8 @@ def classify(text: str, has_images: bool, bot_user_id: str | None = None, is_dm:
     if mentioned:
         rest = strip_mentions(text.replace(f"<@{bot_user_id}>", " "))
         m = ASK_WITH_GREETING.match(rest) or ASK_WITH_PUNCT.match(rest)
-        return Trigger("ask", (m.group("rest") if m else rest).strip())
+        # "hey @Meme Bank, random" / "@Meme Bank hi, random": the greeting was for the bot, not part of the ask
+        return Trigger("ask", (m.group("rest") if m else _LEADING_GREETING.sub("", rest)).strip())
 
     m = ASK_WITH_GREETING.match(text) or ASK_WITH_PUNCT.match(text)
     if m:
@@ -90,13 +92,13 @@ def classify(text: str, has_images: bool, bot_user_id: str | None = None, is_dm:
 
 @dataclass
 class Command:
-    name: str  # help | random | stats | get | forget | restore | retag | tag | untag | search
+    name: str  # help | random | stats | get | info | forget | restore | retag | tag | untag | search
     number: int | None = None  # None on a NUMBERED command: "this one", the meme the conversation is about
     query: str = ""
     or_search: bool = False  # just hashtags ("#mondays"): tags for the meme being talked about, else a search
 
 
-NUMBERED = {"get", "forget", "restore", "retag", "tag", "untag"}
+NUMBERED = {"get", "info", "forget", "restore", "retag", "tag", "untag"}
 
 
 _QUOTED = re.compile(r'"([^"]+)"|“([^”]+)”')
@@ -176,30 +178,64 @@ def _number(digits: str | None) -> int | None:
     return int(digits) if digits else None
 
 
+# Manners around a command: "can you please forget #12", "#12 please", "show #12, thanks!"
+_POLITE_START = re.compile(r"^(?:(?:(?:can|could|would|will)\s+you|(?:i'?d|i\s+would)\s+like\s+you\s+to|kindly|please|pls"
+                           r"|plz)[\s,]+)+", re.I)
+_POLITE_END = re.compile(r"(?:[\s,]+(?:please|pls|plz|thanks|thank\s+you|thx|ty|ta|cheers|:pray:|🙏)"
+                         r"(?:\s+(?:so\s+much|a\s+lot|very\s+much))?[\s!.]*)+$", re.I)
+
+
 def parse_command(rest: str) -> Command:
     # Slack sends "#name" as a link when a channel of that name exists: it's still the tag "name" here
     rest = re.sub(r"<#[A-Z0-9]+\|([^>|]+)>", r"#\1", rest or "")
     raw = rest.strip().rstrip("?!. ")
+    # A command is the same command with or without the manners. A search keeps them, though, so "please clap" or
+    # "thank you memes" are still what gets searched for.
+    plain = _POLITE_END.sub("", _POLITE_START.sub("", raw)).strip().rstrip("?!.,: ")
+    if plain and plain != raw:
+        cmd = _parse(plain)
+        if cmd.name != "search":
+            return cmd
+    return _parse(raw)
+
+
+def _any_number(m: re.Match) -> int | None:
+    return _number(next((g for g in m.groups() if g), None))
+
+
+def _parse(raw: str) -> Command:
     low = raw.lower()
     if not low or _HELP_RE.fullmatch(low):
         return Command("help")
     if re.fullmatch(r"(?:give\s+me\s+|show\s+me\s+)?(?:a\s+)?(?:random(?:\s+(?:one|meme))?|surprise\s+me|dealer'?s\s+choice|anything)", low):
         return Command("random")
-    if re.fullmatch(r"(?:stats|statistics|status|balance|how\s+many(?:\s+memes)?.*|what'?s\s+in\s+the\s+(?:bank|vault))", low):
+    if re.fullmatch(r"(?:(?:show|give)\s+(?:me\s+|us\s+)?(?:the\s+)?)?"
+                    r"(?:stats|statistics|status|balance|how\s+many(?:\s+memes)?.*|what'?s\s+in\s+the\s+(?:bank|vault))", low):
         return Command("stats")
     # "#12", or "this"/"that one"/"it" for the meme being talked about (a thread's meme, or a DM's last deposit).
-    # "forget it" is left out: it usually means "never mind". "delete it" or "remove it" doesn't.
-    m = re.fullmatch(rf"(?:forget\s+{_THIS_NOT_IT}|(?:delete|remove|withdraw)\s+{_THIS}|"
-                     r"(?:forget|delete|remove|withdraw)\s+(?:meme\s+)?#?(\d+))", low)
+    # "forget it" alone is left out: it usually means "never mind". "delete it", "remove it" and "forget it from the
+    # bank" don't.
+    m = re.fullmatch(rf"(?:forget\s+(?:{_THIS_NOT_IT}|it(?=\s+from))|(?:delete|remove|withdraw)\s+{_THIS}"
+                     r"|(?:forget|delete|remove|withdraw)\s+(?:meme\s+)?#?(\d+))"
+                     r"(?:\s+from\s+(?:the\s+|our\s+)?(?:meme[\s-]?bank|bank|vault))?", low)
     if m:
         return Command("forget", _number(m.group(1)))
     m = re.fullmatch(r"(?:restore|unforget|undelete|un-?withdraw|undo\s+forget|bring\s+back)\s+"
-                     rf"(?:{_THIS}|(?:meme\s+)?#?(\d+))", low)
+                     rf"(?:{_THIS}|(?:meme\s+)?#?(\d+))|bring\s+(?:{_THIS}|(?:meme\s+)?#?(\d+))\s+back", low)
     if m:
-        return Command("restore", _number(m.group(1)))
-    m = re.fullmatch(rf"(?:retag|re-tag|redo)\s+(?:{_THIS}|(?:meme\s+)?#?(\d+))", low)
+        return Command("restore", _any_number(m))
+    m = re.fullmatch(rf"(?:retag|re-tag|redo)\s+(?:{_THIS}|(?:meme\s+)?#?(\d+))"
+                     rf"|(?:redo|refresh)\s+(?:the\s+|its\s+)?tags(?:\s+(?:on|for)\s+{_TARGET})?", low)
     if m:
-        return Command("retag", _number(m.group(1)))
+        return Command("retag", _any_number(m))
+    # "what number is this?" · "what's this one's number" · "what are the tags on #12?" · "show tags for this" · "tags?"
+    m = re.fullmatch(rf"(?:what|which)\s+(?:number|one|meme)\s+is\s+{_THIS}"
+                     rf"|what(?:'s|\s+is)\s+(?:its|(?:this|that)(?:\s+one)?'s)\s+number"
+                     rf"|(?:(?:what\s+are|show(?:\s+me)?|list|get)\s+)?(?:the\s+|its\s+|(?:this|that)(?:\s+one)?'s\s+)?"
+                     rf"tags(?:\s+(?:on|for|of)\s+{_TARGET})?"
+                     rf"|(?:how|what)(?:'s|\s+is)\s+{_THIS}\s+tagged(?:\s+(?:with|as))?", low)
+    if m:
+        return Command("info", _any_number(m))
     # Tags: the words keep their own text (comma separated, or hashtags) in query. number=None is "this one": the bot
     # fills in the meme the thread or DM is about, or asks which. (?![\w'-]) stops "tag #12" (no words) being read as
     # "tag #1 with 2", and "tag #12-monkeys" (a hashtag) being read as meme #12.
