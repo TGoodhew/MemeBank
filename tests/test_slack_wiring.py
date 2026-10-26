@@ -9,6 +9,7 @@ from slack_sdk.web.slack_response import SlackResponse
 
 from memebank.config import Config
 from memebank.slack_app import build_app
+from memebank.triggers import Command, parse_command
 
 BOT = "UBOT123"
 
@@ -18,6 +19,8 @@ class SpyBank:
         self.deposits, self.asks, self.banked_by, self.confirms, self.said = [], [], [], [], []
         self.abouts = []  # the meme each ask was about ("tag it ..."), or None
         self.deposit_results = []  # what deposit_message returns
+        self.meant = {}  # text -> Command, for what Claude would make of it
+        self.understood = []  # what was handed to understand() (where Claude may be asked)
         self.banked = {}  # source key -> meme, for "is it already in the vault?"
         self.store = SimpleNamespace(find_by_source=self.banked.get)
 
@@ -33,7 +36,11 @@ class SpyBank:
         self.banked_by.append(banked_by)
         return self.deposit_results
 
-    def handle_ask(self, client, channel, user, rest, thread_ts=None, about=None):
+    def understand(self, rest):
+        self.understood.append(rest)
+        return self.meant.get(rest) or parse_command(rest)
+
+    def handle_ask(self, client, channel, user, rest, thread_ts=None, about=None, cmd=None):
         self.asks.append((channel, user, rest, thread_ts))
         self.abouts.append(about)
 
@@ -564,3 +571,20 @@ def test_which_one_suggests_a_command_that_works(app_and_bank):
     history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "two", "files": IMG + [{**IMG[0], "id": "F2"}]}]
     send(app, _reply(f"<@{BOT}> tags?"))
     assert "`hey meme bank, what are the tags on #12`" in bank.said[0][1]
+
+
+def test_a_command_claude_understood_still_finds_the_threads_meme(app_and_bank):
+    app, bank, history = app_and_bank
+    bank.banked["slack:F1"] = SimpleNamespace(number=12, withdrawn_at="")
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "lol", "files": IMG}]
+    bank.meant["chuck too real on this one"] = Command("tag", None, query='"too real"')
+    send(app, _reply(f"<@{BOT}> chuck too real on this one"))
+    assert bank.abouts == [12]
+
+
+def test_tag_replies_in_the_banked_dm_thread_never_go_to_claude(app_and_bank):
+    app, bank, history = app_and_bank
+    history["9.0"] = [{"ts": "9.0", "user": BOT, "text": "Banked *#7: Castro cigar*. Here are the tags I used: ..."}]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "9.5",
+               "thread_ts": "9.0", "text": "price tag, sticker"})
+    assert bank.asks == [("DTONY", "UTONY", "tag #7 price tag, sticker", "9.0")] and bank.understood == []

@@ -80,11 +80,16 @@ def build_app(cfg, bank: MemeBank) -> App:
         user = event.get("user", "")
         cmd = parse_command(rest)
         about = None  # the meme "it"/"this" means
+        number = None
         if channel_type == "im" and in_thread and cmd.name == "search":
             # Plain words replied under the bot's "Banked #12" DM are tags for #12, not a search.
             number = banked_number_in_thread(client, channel, thread_ts)
-            if number:
-                rest = f"tag #{number} {rest}"
+        if number:
+            rest, cmd = f"tag #{number} {rest}", None  # handle_ask reads it again as a tag
+        elif cmd.name == "search":
+            cmd = bank.understand(rest)  # wording the patterns missed may still be a command: Claude says which
+        if cmd is None:
+            pass
         elif channel_type == "im" and cmd.name in NUMBERED and cmd.number is None:
             # "Tag it ..." straight into the DM: the meme is the one the bot last said it banked here. A bare "#mondays"
             # sent straight into the DM is a search, though, as it always was.
@@ -111,7 +116,7 @@ def build_app(cfg, bank: MemeBank) -> App:
                          thread_ts)
                 return
             about = numbers[0] if numbers else None
-        bank.handle_ask(client, channel, user, rest, thread_ts=thread_ts, about=about)
+        bank.handle_ask(client, channel, user, rest, thread_ts=thread_ts, about=about, cmd=cmd)
 
     def answer_confirm(client, event, in_thread: bool) -> bool:
         """An answer to a "want me to bank it?" DM: a reply in its thread, or a yes/no sent straight into the DM

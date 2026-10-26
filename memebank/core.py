@@ -15,7 +15,7 @@ from . import images
 from .search import search
 from .store import Meme
 from .tagger import Tags, clean_tags
-from .triggers import NUMBERED, Command, hashtags_as_words, parse_command, split_tags, usage
+from .triggers import NUMBERED, Command, hashtags_as_words, looks_like_instruction, parse_command, split_tags, usage
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ HELP = """*The Meme Bank* :bank:
 • `hey meme bank, forget #12` (asks a bank manager to remove it; they decide, and `restore #12` undoes it)
 *In a meme's thread*, "this" or "it" is that meme: `@Meme Bank add a tag #tooReal`  ·  `remove the tag cabin trip`  ·  `what are its tags?`  ·  `retag this`  ·  `forget this`
 (`#12` is a meme's number and `#tooReal` is a tag. For a tag that's all digits, quote it: `tag #12 "2020"`.)
-You can also @mention me, or DM me a question without the "hey meme bank". Ask however you like: "can you please tag this one …", "#12 thanks" and "what number is this?" all work."""
+You can also @mention me, or DM me a question without the "hey meme bank". Ask however you like: "can you please tag this one …", "#12 thanks", "what number is this?" and even "chuck #mood on this one" all work. If I'm not sure what you meant, I'll ask."""
 
 
 @dataclass
@@ -246,11 +246,56 @@ class MemeBank:
             self._say(client, channel, "\n".join(lines), thread_ts=thread or ts)
 
     # ------------------------------------------------------------------ withdrawals
-    def handle_ask(self, client, channel: str, user: str, rest: str, thread_ts: str | None = None,
-                   about: int | None = None) -> Command:
-        """about: the meme the conversation is about (the meme in this thread, or a DM's last deposit), which is what
-        "tag it ..." or "forget this" without a number mean."""
+    def understand(self, rest: str) -> Command:
+        """The command a message means. The patterns in triggers.py first; if they only see a search but the message
+        reads like an instruction ("chuck too real on this one"), Claude says which command it is. If Claude isn't
+        sure, the answer is a "clarify" that asks; if it can't be reached, it stays a search."""
         cmd = parse_command(rest)
+        interpret = getattr(self.tagger, "interpret", None)
+        if cmd.name != "search" or not interpret or not looks_like_instruction(rest):
+            return cmd
+        try:
+            meant = interpret(rest)
+        except Exception:  # noqa: BLE001
+            log.exception("Couldn't ask Claude what %r meant; searching instead", rest)
+            return cmd
+        name, number, tags = meant["command"], meant["number"], meant["tags"]
+        if name == "search":  # sure or not, a search is what the bot did with this before Claude was asked
+            return Command("search", query=meant["query"] or cmd.query)
+        target = f"#{number}" if number else "this"
+        if name in ("tag", "untag"):
+            understood = Command(name, number, query=", ".join(tags), tags=tags)
+            said = self._suggest_tags(name, number, target, tags)
+        elif name == "get" and not number:  # "show me this one": it's already in view, so say which it is instead
+            understood, said = Command("info"), "what number is this?"
+        elif name in NUMBERED:
+            understood = Command(name, number)
+            said = {"get": f"#{number}", "info": f"what are the tags on {target}"}.get(name, f"{name} {target}")
+        else:
+            understood, said = Command(name), name
+        if not meant["sure"]:
+            return Command("clarify", query=said.strip())
+        return understood
+
+    @staticmethod
+    def _suggest_tags(name: str, number: int | None, target: str, tags: list[str]) -> str:
+        """A tag/untag command to suggest that, typed back, gives these same tags: plain if that works, else quoted
+        ("tag this with love" would tag "love"; "tag this cheers" would lose "cheers" as manners)."""
+        plain = f"{name} {target} {', '.join(tags)}"
+        back = parse_command(plain)
+        if (back.name, back.number, clean_tags(split_tags(back.query))) == (name, number, clean_tags(tags)):
+            return plain
+        quoted = ", ".join(f"“{t}”" if '"' in t else f'"{t}"' for t in tags)  # curly quotes around a tag with " in
+        return f"{name} {target} {quoted}"
+
+    def handle_ask(self, client, channel: str, user: str, rest: str, thread_ts: str | None = None,
+                   about: int | None = None, cmd: Command | None = None) -> Command:
+        """about: the meme the conversation is about (the meme in this thread, or a DM's last deposit), which is what
+        "tag it ..." or "forget this" without a number mean. cmd: what rest means, if understand() has already said."""
+        cmd = cmd or self.understand(rest)
+        if cmd.name == "clarify":  # Claude wasn't sure what was meant
+            self._say(client, channel, f"Did you mean `hey meme bank, {cmd.query}`?", thread_ts)
+            return cmd
         if cmd.name in NUMBERED and cmd.number is None:
             cmd.number = about
             if about is None and cmd.or_search:  # "hey meme bank, #mondays" with no meme in sight
@@ -314,7 +359,7 @@ class MemeBank:
                     self._say(client, channel, f"I couldn't reach a bank manager just now, so #{n} is unchanged. "
                                                f"Try `hey meme bank, forget #{n}` again in a bit.", thread_ts)
         elif cmd.name == "tag":  # anyone can add tags
-            words = clean_tags(split_tags(cmd.query))
+            words = clean_tags(cmd.tags if cmd.tags is not None else split_tags(cmd.query))
             new = [t for t in words if t not in meme.all_tags]
             had = [t for t in words if t in meme.all_tags]
             added = new[:max(0, MAX_EXTRA_TAGS - len(meme.extra_tags))]
@@ -332,7 +377,7 @@ class MemeBank:
             else:
                 self._say(client, channel, f"#{n} already has those tags.", thread_ts)
         elif cmd.name == "untag":
-            words = clean_tags(split_tags(cmd.query))
+            words = clean_tags(cmd.tags if cmd.tags is not None else split_tags(cmd.query))
             # spaces don't count, so "#tooreal" takes off "too real" (what "#tooReal" was stored as) and vice versa
             unspaced = {w.replace(" ", "") for w in words}
             removed = [t for t in meme.all_tags if t.replace(" ", "") in unspaced]
