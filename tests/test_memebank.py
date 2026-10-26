@@ -257,6 +257,9 @@ def test_classify(text, has_img, dm, expect):
     ("untag this with doh", "untag", None, "doh"),
     ("untag it as doh", "untag", None, "doh"),
     ("untag #14 the tag doh", "untag", 14, "doh"),
+    ("untag this, the tag doh", "untag", None, "doh"),
+    ("untag #14: with doh", "untag", 14, "doh"),
+    ("untag #14 - as doh", "untag", 14, "doh"),
     ("untag #14 tag team", "untag", 14, "tag team"),  # a bare "tag" is still part of the tag
     ("untag without context", "untag", None, "without context"),
     ("memes tagged too real", "search", None, "memes tagged too real"),
