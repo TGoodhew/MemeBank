@@ -252,6 +252,16 @@ def test_classify(text, has_img, dm, expect):
     ("remove tag tag team from #7", "untag", 7, "tag team"),
     ("untag cabin trip from it", "untag", None, "cabin trip"),
     ("remove the tags from #12", "untag", 12, ""),  # no tag named: the bank asks which
+    # "with"/"as" after the meme, like tagging does
+    ("untag #14 with doh", "untag", 14, "doh"),
+    ("untag this with doh", "untag", None, "doh"),
+    ("untag it as doh", "untag", None, "doh"),
+    ("untag #14 the tag doh", "untag", 14, "doh"),
+    ("untag this, the tag doh", "untag", None, "doh"),
+    ("untag #14: with doh", "untag", 14, "doh"),
+    ("untag #14 - as doh", "untag", 14, "doh"),
+    ("untag #14 tag team", "untag", 14, "tag team"),  # a bare "tag" is still part of the tag
+    ("untag without context", "untag", None, "without context"),
     ("memes tagged too real", "search", None, "memes tagged too real"),
     ("find the add-a-tag meme", "search", None, "the add-a-tag meme"),
     ("what's #12", "search", None, "what's #12"),
@@ -330,9 +340,7 @@ def test_classify(text, has_img, dm, expect):
 ])
 def test_parse_command(rest, name, number, query):
     c = parse_command(rest)
-    assert (c.name, c.number) == (name, number)
-    if query:
-        assert c.query == query
+    assert (c.name, c.number, c.query) == (name, number, query)
 
 
 # ---------------------------------------------------------------- deposits
@@ -1002,3 +1010,12 @@ def test_manners_dont_stop_claude_being_asked(setup, text):
     tagger.meant = {"command": "tag", "tags": ["too real"]}
     bank.handle_ask(client, "CGEN", "UZAK", text, about=2)
     assert tagger.interpret_calls == [text] and store.get(2).extra_tags == ["too real"]
+
+
+def test_untag_with_undoes_tag_with(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    bank.handle_ask(client, "CGEN", "UTONY", "Tag 1 with doh")
+    assert "doh" in store.get(1).extra_tags
+    bank.handle_ask(client, "CGEN", "UTONY", "untag #1 with doh")  # what was tried in Slack
+    assert "Removed _doh_" in client.named("chat_postMessage")[-1]["text"] and "doh" not in store.get(1).all_tags

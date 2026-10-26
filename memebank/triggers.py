@@ -182,6 +182,7 @@ _THIS_NOT_IT = r"(?:this|that)(?:\s+one)?"
 _TARGET = rf"(?:{_THIS}\b|(?:meme\s+)?#?(\d+)(?![\w'-]))"
 _A = r"(?:(?:a|an|the|some|these)\s+)"
 _WORDS = r"(?:\s*[:,-]?\s*(.+))?"  # the tags, if any
+_UNTAG_FILLER = r"(?:\s*[:,-]?\s*\b(?:with|as|the\s+tags?)\b)?"  # "untag #14 with doh", "untag this, the tag doh"
 _HASHTAGS = rf"{_HASHTAG.pattern}(?:[\s,]+(?:and\s+)?{_HASHTAG.pattern})*"
 _REMOVE_WORD = r"(?:remove|drop|delete|take\s+off|take|strip)"  # needs "tag" (or a hashtag) to be about tags
 _REMOVE = rf"(?:untag|{_REMOVE_WORD})"
@@ -318,11 +319,13 @@ def _parse(raw: str) -> Command:
                      raw, flags)
     if m:
         return Command("tag", int(m.group(1)), query=(m.group(2) or "").strip())
-    m = re.fullmatch(rf"(?:untag|remove\s+tags?)\s+(?:meme\s+)?#?(\d+)(?![\w'-]){_WORDS}", raw, flags)  # "untag #12 squad"
+    # "untag #12 squad" · "untag #14 with doh" (like "tag #14 with doh") · "untag #12 the tag squad". A bare "tag" stays
+    # part of the tag: "untag #12 tag team" takes off "tag team".
+    m = re.fullmatch(rf"(?:untag|remove\s+tags?)\s+(?:meme\s+)?#?(\d+)(?![\w'-]){_UNTAG_FILLER}{_WORDS}", raw, flags)
     if m:
         return Command("untag", int(m.group(1)), query=(m.group(2) or "").strip())
     # "untag this laser tag" · "untag tag team" · "untag cabin trip": everything after "untag" (and "this") is the tag
-    m = re.fullmatch(rf"untag\s+(?:{_TARGET})?{_WORDS}", raw, flags)
+    m = re.fullmatch(rf"untag\s+(?:{_TARGET})?{_UNTAG_FILLER}{_WORDS}", raw, flags)
     if m:
         return Command("untag", _number(m.group(1)), query=(m.group(2) or "").strip())
     # "remove the tag too real" · "drop the #tooReal tag" · "take the tag cabin trip off" · "take #tooReal off"
