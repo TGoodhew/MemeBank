@@ -164,6 +164,10 @@ def setup(tmp_path):
     (f"<@{BOT}> yo-yo memes", False, False, ("ask", "yo-yo memes")),
     ("find the castro one", False, True, ("ask", "find the castro one")),
     ("no words needed", True, True, ("bank", "")),
+    # pasted from the bot's "Did you mean `hey meme bank, ...`?", code formatting and all
+    ("`hey meme bank, tag this functionally useless`", False, False, ("ask", "tag this functionally useless")),
+    ("```hey meme bank, random```", False, False, ("ask", "random")),
+    (f"<@{BOT}> `tag this too real`", False, False, ("ask", "tag this too real")),
 ])
 def test_classify(text, has_img, dm, expect):
     t = classify(text, has_img, BOT, is_dm=dm)

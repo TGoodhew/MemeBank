@@ -68,7 +68,8 @@ def strip_mentions(text: str) -> str:
 
 
 def classify(text: str, has_images: bool, bot_user_id: str | None = None, is_dm: bool = False) -> Trigger | None:
-    text = text or ""
+    # A command copied from the bot's `hey meme bank, ...` keeps Slack's code formatting: the backticks aren't words
+    text = (text or "").replace("`", "")
     mentioned = bool(bot_user_id) and f"<@{bot_user_id}" in text
 
     if has_images and (says_deposit(text) or mentioned or is_dm):
