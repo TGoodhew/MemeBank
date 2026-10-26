@@ -77,12 +77,11 @@ def build_app(cfg, bank: MemeBank) -> App:
         thread_ts = event.get("thread_ts")
         in_thread = bool(thread_ts) and thread_ts != event.get("ts")
         has_images = bool(images_in(event, channel))
-        if channel_type == "im" and not has_images and answer_confirm(client, event, in_thread):
-            return
         trig = classify(text, has_images, bot_user_id, is_dm=channel_type == "im")
         # "yes" to the bot's "Did you mean `hey meme bank, ...`?" just before does it, whether or not it's addressed to
-        # the bot; "no" leaves it (rather than searching for "no")
-        answer = yes_or_no(trig.rest if trig else "" if has_images else text)
+        # the bot; "no" leaves it (rather than searching for "no"). The whole text first, as "<@bot> ok" loses its "ok"
+        # to classify (a greeting there), then what's after "hey meme bank, yep".
+        answer = None if has_images else yes_or_no(text) or (yes_or_no(trig.rest) if trig else None)
         suggested = suggestion_before(client, event, in_thread) if answer else None
         if suggested and answer == "no":
             bank.say(client, channel, "OK, I'll leave it. Say it another way, or `hey meme bank, help` lists what I "
@@ -90,6 +89,9 @@ def build_app(cfg, bank: MemeBank) -> App:
             return
         if suggested:
             trig = Trigger("ask", suggested)
+        # (a suggestion is newer than a "want me to bank it?" heading the DM thread it's in, so it answers first)
+        elif channel_type == "im" and not has_images and answer_confirm(client, event, in_thread):
+            return
         if trig is None:
             return
         if trig.kind == "bank":

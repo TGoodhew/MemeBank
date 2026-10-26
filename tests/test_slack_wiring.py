@@ -603,7 +603,8 @@ def _suggested_in_thread(history, suggestion="tag this functionally useless"):
     ]
 
 
-@pytest.mark.parametrize("answer", ["yes", "Yes please!", f"<@{BOT}> yes", "hey meme bank, yep", "ok do it"])
+@pytest.mark.parametrize("answer", ["yes", "Yes please!", f"<@{BOT}> yes", "hey meme bank, yep", "ok do it",
+                                    f"<@{BOT}> ok", f"<@{BOT}> okay"])  # "ok" isn't a greeting here
 def test_yes_to_did_you_mean_does_what_it_suggested(app_and_bank, answer):
     app, bank, history = app_and_bank
     _suggested_in_thread(history)
@@ -665,3 +666,19 @@ def test_a_suggestion_pasted_back_with_its_code_formatting_works(app_and_bank):
     _suggested_in_thread(history)
     send(app, _reply("`hey meme bank, tag this functionally useless`", ts="14.0", user="UTONY"))
     assert bank.asks == [("CGEN", "UTONY", "tag this functionally useless", "10.0")] and bank.abouts == [35]
+
+
+@pytest.mark.parametrize("answer", ["yes", "no"])
+def test_a_suggestion_in_a_bank_it_dm_thread_is_answered_before_the_older_question(app_and_bank, answer):
+    app, bank, history = app_and_bank
+    question = dict(_pending_question(history), ts="9.0")  # "Want me to bank it?" heads the DM thread
+    history["9.0"] = [question,
+                      {"ts": "9.1", "thread_ts": "9.0", "user": "UTONY", "text": "actually just bin #12"},
+                      {"ts": "9.2", "thread_ts": "9.0", "user": BOT, "text": "Did you mean `hey meme bank, forget #12`?"}]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "9.3",
+               "thread_ts": "9.0", "text": answer})
+    assert bank.deposits == []  # not the post the old question was about
+    if answer == "yes":
+        assert bank.asks == [("DTONY", "UTONY", "forget #12", "9.0")]
+    else:
+        assert bank.asks == [] and bank.said[0][1].startswith("OK, I'll leave it.")
