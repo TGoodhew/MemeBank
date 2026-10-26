@@ -31,9 +31,10 @@ HELP = """*The Meme Bank* :bank:
 • `hey meme bank, find me the France meme`
 • `hey meme bank, what have you got on Mondays?`
 • `hey meme bank, #12`  ·  `random`  ·  `stats`
-• `hey meme bank, tag #12 names, in-jokes` (anyone; `untag #12 word` for the poster or a bank manager)  ·  `retag #12` (Claude again)
+• `hey meme bank, tag #12 names, in-jokes` or `add #tooReal to #12` (anyone; `untag #12 word` for the poster or a bank manager)  ·  `retag #12` (Claude again)
 • `hey meme bank, forget #12` (asks a bank manager to remove it; they decide, and `restore #12` undoes it)
-*In a meme's thread*, "this" or "it" is that meme: `hey meme bank, tag it cabin trip`  ·  `untag this cabin trip`  ·  `retag this`  ·  `forget this`
+*In a meme's thread*, "this" or "it" is that meme: `@Meme Bank add a tag #tooReal`  ·  `remove the tag cabin trip`  ·  `retag this`  ·  `forget this`
+(`#12` is a meme's number and `#tooReal` is a tag. For a tag that's all digits, quote it: `tag #12 "2020"`.)
 You can also @mention me, or DM me a question without the "hey meme bank"."""
 
 
@@ -252,6 +253,8 @@ class MemeBank:
         cmd = parse_command(rest)
         if cmd.name in NUMBERED and cmd.number is None:
             cmd.number = about
+            if about is None and cmd.or_search:  # "hey meme bank, #mondays" with no meme in sight
+                cmd = Command("search", query=cmd.query)
         memes = self.store.all()
         if cmd.name == "help":
             self._say(client, channel, HELP, thread_ts)
@@ -328,7 +331,9 @@ class MemeBank:
                 self._say(client, channel, f"#{n} already has those tags.", thread_ts)
         elif cmd.name == "untag":
             words = clean_tags(split_tags(cmd.query))
-            removed = [t for t in words if t in meme.all_tags]
+            # spaces don't count, so "#tooreal" takes off "too real" (what "#tooReal" was stored as) and vice versa
+            unspaced = {w.replace(" ", "") for w in words}
+            removed = [t for t in meme.all_tags if t.replace(" ", "") in unspaced]
             if not allowed:
                 self._say(client, channel, f"Only whoever deposited #{n} (or a bank manager) can remove its tags.", thread_ts)
             elif not words:
