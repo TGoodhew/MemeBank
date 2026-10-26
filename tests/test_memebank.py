@@ -206,6 +206,8 @@ def test_classify(text, has_img, dm, expect):
     ('tag this one with "rock and roll"', "tag", None, '"rock and roll"'),
     ("tag #tooReal", "tag", None, "#tooReal"),
     ("tag #2020s", "tag", None, "#2020s"),  # a hashtag, not meme #2020
+    ("tag #12-monkeys", "tag", None, "#12-monkeys"),  # ...and so is this, not meme #12 with "monkeys"
+    ("untag #2020-s", "untag", None, "#2020-s"),
     ("add #tooReal", "tag", None, "#tooReal"),
     ("add #tooReal to #12", "tag", 12, "#tooReal"),
     ("add the tag too real to 12", "tag", 12, "too real"),
@@ -536,6 +538,7 @@ def test_anyone_can_add_tags_and_they_survive_a_retag(setup):
     ("cabin trip #too_real, #iPhone and #COVID19", ["cabin trip", "too real", "iPhone", "COVID19"]),
     ("#rock-n-roll", ["rock n roll"]),
     ("#tooreal", ["tooreal"]),
+    ("#rock-and-roll, #and", ["rock and roll", "and"]),  # "and" only splits the words between hashtags
     ("", []),
 ])
 def test_split_tags(text, tags):
@@ -569,6 +572,8 @@ def test_a_bare_hashtag_tags_the_meme_in_view_or_else_searches(setup):
     bank.handle_ask(client, "CGEN", "UZAK", "#paris")
     assert client.named("files_upload_v2")[-1]["initial_comment"].startswith("*#2: Baguette diplomacy*")
     assert store.get(2).extra_tags == []
+    bank.handle_ask(client, "CGEN", "UZAK", "#tooReal")  # searched for as stored: "too real", so keywords find #1
+    assert tagger.pick_calls[-1][0] == "too real"
 
 
 def test_tag_it_without_a_number_outside_a_dm_asks_which_meme(setup):

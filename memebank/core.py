@@ -15,7 +15,7 @@ from . import images
 from .search import search
 from .store import Meme
 from .tagger import Tags, clean_tags
-from .triggers import NUMBERED, Command, parse_command, split_tags
+from .triggers import NUMBERED, Command, hashtags_as_words, parse_command, split_tags
 
 log = logging.getLogger(__name__)
 
@@ -254,7 +254,7 @@ class MemeBank:
         if cmd.name in NUMBERED and cmd.number is None:
             cmd.number = about
             if about is None and cmd.or_search:  # "hey meme bank, #mondays" with no meme in sight
-                cmd = Command("search", query=cmd.query)
+                cmd = Command("search", query=hashtags_as_words(cmd.query))
         memes = self.store.all()
         if cmd.name == "help":
             self._say(client, channel, HELP, thread_ts)
