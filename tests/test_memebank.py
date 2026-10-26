@@ -337,9 +337,7 @@ def test_classify(text, has_img, dm, expect):
 ])
 def test_parse_command(rest, name, number, query):
     c = parse_command(rest)
-    assert (c.name, c.number) == (name, number)
-    if query:
-        assert c.query == query
+    assert (c.name, c.number, c.query) == (name, number, query)
 
 
 # ---------------------------------------------------------------- deposits
