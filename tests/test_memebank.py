@@ -152,6 +152,8 @@ def setup(tmp_path):
     (f"hey <@{BOT}> random", False, False, ("ask", "random")),  # the greeting is for the bot (#58)
     (f"<@{BOT}> hi, random", False, False, ("ask", "random")),
     (f"<@{BOT}> hey", False, False, ("ask", "")),
+    (f"<@{BOT}> hi-fi memes", False, False, ("ask", "hi-fi memes")),  # a word, not a greeting
+    (f"<@{BOT}> yo-yo memes", False, False, ("ask", "yo-yo memes")),
     ("find the castro one", False, True, ("ask", "find the castro one")),
     ("no words needed", True, True, ("bank", "")),
 ])
@@ -859,3 +861,13 @@ def test_keyword_rank_prefers_tags_and_multiword_tags(setup):
     ranked = keyword_rank("the fidel castro one", store.all())
     assert ranked[0][1].number == 1 and ranked[0][0] > ranked[1][0]
     assert search("cigars", store.all(), tagger=None)[0].number == 1  # plural folded
+
+
+def test_a_long_run_of_manners_is_parsed_quickly():
+    import time
+
+    start = time.perf_counter()
+    parse_command("forget #12" + "  please" * 32 + " x")  # just under the length limit, and the pattern must give up
+    parse_command("forget #12" + "  please" * 3000 + " x")  # over it: not looked at for manners
+    parse_command("#12" + ", thanks!!" * 3000)
+    assert time.perf_counter() - start < 0.5

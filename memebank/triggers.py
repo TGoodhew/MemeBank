@@ -53,7 +53,7 @@ ASK_WITH_GREETING = re.compile(
 )
 # "Meme bank, France" / "meme bank: random" (needs the punctuation so "meme bank is great" isn't a question)
 ASK_WITH_PUNCT = re.compile(r"^\s*(?:the\s+)?meme[\s-]?bank\s*[,:!?]\s*(?P<rest>.*)$", re.I | re.S)
-_LEADING_GREETING = re.compile(rf"^\s*{_GREETING}\b[\s,:;!.-]*", re.I)
+_LEADING_GREETING = re.compile(rf"^\s*{_GREETING}\b(?!-\w)[\s,:;!.-]*", re.I)  # not "hi-fi memes"
 MENTION_RE = re.compile(r"<@([A-Z0-9]+)(?:\|[^>]*)?>")
 
 
@@ -188,8 +188,10 @@ def _number(digits: str | None) -> int | None:
 # Manners around a command: "can you please forget #12", "#12 please", "show #12, thanks!"
 _POLITE_START = re.compile(r"^(?:(?:(?:can|could|would|will)\s+you|(?:i'?d|i\s+would)\s+like\s+you\s+to|kindly|please|pls"
                            r"|plz)[\s,]+)+", re.I)
+MAX_POLITE = 300  # characters: longer messages aren't commands with manners on
+# Only [\s,]+ takes the spaces between words, so there's one way to match and a long message can't make it crawl.
 _POLITE_END = re.compile(r"(?:[\s,]+(?:please|pls|plz|thanks|thank\s+you|thx|ty|ta|cheers|:pray:|🙏)"
-                         r"(?:\s+(?:so\s+much|a\s+lot|very\s+much))?[\s!.]*)+$", re.I)
+                         r"(?:\s+(?:so\s+much|a\s+lot|very\s+much))?[!.]*)+\s*$", re.I)
 
 
 def parse_command(rest: str) -> Command:
@@ -197,8 +199,9 @@ def parse_command(rest: str) -> Command:
     rest = re.sub(r"<#[A-Z0-9]+\|([^>|]+)>", r"#\1", rest or "")
     raw = rest.strip().rstrip("?!. ")
     # A command is the same command with or without the manners. A search keeps them, though, so "please clap" or
-    # "thank you memes" are still what gets searched for.
-    plain = _POLITE_END.sub("", _POLITE_START.sub("", raw)).strip().rstrip("?!.,: ")
+    # "thank you memes" are still what gets searched for. Commands are short, so a long message isn't looked at this
+    # way (stripping manners from the end of one takes time that grows with its length squared).
+    plain = _POLITE_END.sub("", _POLITE_START.sub("", raw)).strip().rstrip("?!.,: ") if len(raw) <= MAX_POLITE else ""
     if plain and plain != raw:
         cmd = _parse(plain)
         if cmd.or_search:  # "#paris thank you": if there's no meme to tag, search for all of it
