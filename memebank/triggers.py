@@ -159,8 +159,9 @@ def parse_command(rest: str) -> Command:
     if re.fullmatch(r"(?:stats|statistics|status|balance|how\s+many(?:\s+memes)?.*|what'?s\s+in\s+the\s+(?:bank|vault))", low):
         return Command("stats")
     # "#12", or "this"/"that one"/"it" for the meme being talked about (a thread's meme, or a DM's last deposit).
-    # "forget it" is left out: it usually means "never mind".
-    m = re.fullmatch(rf"(?:forget|delete|remove|withdraw)\s+(?:{_THIS_NOT_IT}|(?:meme\s+)?#?(\d+))", low)
+    # "forget it" is left out: it usually means "never mind". "delete it" or "remove it" doesn't.
+    m = re.fullmatch(rf"(?:forget\s+{_THIS_NOT_IT}|(?:delete|remove|withdraw)\s+{_THIS}|"
+                     r"(?:forget|delete|remove|withdraw)\s+(?:meme\s+)?#?(\d+))", low)
     if m:
         return Command("forget", _number(m.group(1)))
     m = re.fullmatch(r"(?:restore|unforget|undelete|un-?withdraw|undo\s+forget|bring\s+back)\s+"

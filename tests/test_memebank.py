@@ -186,6 +186,9 @@ def test_classify(text, has_img, dm, expect):
     ("forget this", "forget", None, ""),
     ("delete that one", "forget", None, ""),
     ("forget it", "search", None, "forget it"),  # "never mind", not a removal
+    ("delete it", "forget", None, ""),  # ...but these are
+    ("remove it", "forget", None, ""),
+    ("withdraw that one", "forget", None, ""),
     ("restore it", "restore", None, ""),
     ("bring back this one", "restore", None, ""),
     ("retag this", "retag", None, ""),

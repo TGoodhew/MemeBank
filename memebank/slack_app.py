@@ -15,6 +15,7 @@ BANKED_RE = re.compile(r"Banked (?:as )?\*#(\d+)")  # the bot's own "Banked as *
 # How the bot names a meme in anything it says about one: "Banked as *#12: ...", a posted meme ("*#12: ...*"),
 # "Already in the vault as *#12: ...", "Tagged *#12: ...".
 MEME_REF_RE = re.compile(r"\*#(\d+):")
+MAX_THREAD_PAGES = 20  # 200 replies a page: enough for any thread people still reply in
 # Answers to "want me to bank it?". "please" alone isn't consent ("please don't"), and a no is checked first.
 YES_RE = re.compile(r"\s*(?:please\s+)?(?:y|yes|yep|yeah|yup|sure|ok|okay|bank it|store it|do it|go ahead)\b", re.I)
 # A refusal anywhere in the reply wins: "okay, don't bank it" and "sure, but do not store it" are noes.
@@ -207,7 +208,14 @@ def build_app(cfg, bank: MemeBank) -> App:
         own, or a reply) or the bot naming a meme ("Banked as *#12: ...", a meme it posted, "Tagged *#12: ...").
         Returns its number(s); ([], post) when the nearest image post isn't banked yet; ([], None) if there's none."""
         try:
-            msgs = client.conversations_replies(channel=channel, ts=thread_ts, limit=200).get("messages", [])
+            msgs, cursor = [], None
+            for _ in range(MAX_THREAD_PAGES):  # replies come oldest first, so the nearest ones can be pages in
+                resp = client.conversations_replies(channel=channel, ts=thread_ts, latest=before, inclusive=False,
+                                                    limit=200, cursor=cursor)
+                msgs += resp.get("messages", [])
+                cursor = (resp.get("response_metadata") or {}).get("next_cursor")
+                if not cursor:
+                    break
             for msg in sorted(msgs, key=lambda m: float(m.get("ts", 0)), reverse=True):  # nearest first
                 if float(msg.get("ts", 0)) >= float(before):
                     continue

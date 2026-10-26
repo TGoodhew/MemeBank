@@ -55,7 +55,14 @@ def app_and_bank(monkeypatch):
                 msgs = msgs[:int(params.get("limit", 100))]
             data["messages"] = [m for m in msgs if m.get("thread_ts", m["ts"]) == m["ts"]]
         if api_method == "conversations.replies":
-            data["messages"] = history.get(params.get("ts"), [])
+            pages = history.get(("pages", params.get("ts")))  # a long thread, a page at a time
+            if pages:
+                page = int(params.get("cursor") or 0)
+                data["messages"] = pages[page]
+                if page + 1 < len(pages):
+                    data["response_metadata"] = {"next_cursor": str(page + 1)}
+            else:
+                data["messages"] = history.get(params.get("ts"), [])
         return SlackResponse(client=self, http_verb="POST", api_url=api_method, req_args={}, data=data,
                              headers={}, status_code=200)
 
@@ -508,3 +515,15 @@ def test_a_search_in_a_thread_isnt_about_the_threads_meme(app_and_bank):
     history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "lol", "files": IMG}]
     send(app, _reply(f"<@{BOT}> find me the France meme"))
     assert bank.asks == [("CGEN", "UZAK", "find me the France meme", "10.0")] and bank.abouts == [None]
+
+
+def test_a_long_threads_later_pages_are_read_for_the_nearest_meme(app_and_bank):
+    app, bank, history = app_and_bank
+    bank.banked["slack:F1"] = SimpleNamespace(number=12, withdrawn_at="")
+    history[("pages", "10.0")] = [
+        [{"ts": "10.0", "user": "UTONY", "text": "lol", "files": IMG},
+         {"ts": "11.0", "thread_ts": "10.0", "user": "UKEVIN", "text": "chat"}],
+        [{"ts": "15.0", "thread_ts": "10.0", "user": BOT, "text": "Banked as *#40: A later one*"}],
+    ]
+    send(app, _reply(f"<@{BOT}> tag it too real", ts="20.0"))
+    assert bank.abouts == [40]
