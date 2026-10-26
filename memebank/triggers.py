@@ -183,7 +183,8 @@ _TARGET = rf"(?:{_THIS}\b|(?:meme\s+)?#?(\d+)(?![\w'-]))"
 _A = r"(?:(?:a|an|the|some|these)\s+)"
 _WORDS = r"(?:\s*[:,-]?\s*(.+))?"  # the tags, if any
 _HASHTAGS = rf"{_HASHTAG.pattern}(?:[\s,]+(?:and\s+)?{_HASHTAG.pattern})*"
-_REMOVE = r"(?:untag|remove|drop|delete|take\s+off|take|strip)"
+_REMOVE_WORD = r"(?:remove|drop|delete|take\s+off|take|strip)"  # needs "tag" (or a hashtag) to be about tags
+_REMOVE = rf"(?:untag|{_REMOVE_WORD})"
 
 
 def _number(digits: str | None) -> int | None:
@@ -292,14 +293,26 @@ def _parse(raw: str) -> Command:
     # "tag #1 with 2", and "tag #12-monkeys" (a hashtag) being read as meme #12.
     flags = re.I | re.S
     # A meme named at the end wins over a number the tag starts with: "add a tag 12 monkeys to #7" is for #7, and
-    # "remove the tag day off from #12" takes "day off" off #12. (?!tags?\s) leaves "add tags to #3: x" for below.
-    m = re.fullmatch(rf"add\s+{_A}?(?:tags?\s+)?(?!tags?\s)(.+?)\s+(?:to|on)\s+{_TARGET}", raw, flags)
+    # "remove the tag day off from #12" takes "day off" off #12. The (?>...) groups are atomic: once "a tag" is read as
+    # filler it stays filler, so a tag with "tag" in it keeps it ("add tags tag team to #7" -> "tag team"). With no
+    # words left ("add tags to #3: x") these don't match, and the number-first patterns below take it.
+    m = re.fullmatch(rf"add\s+(?>{_A}?)(?>(?:tags?\s+)?)(.+?)\s+(?:to|on)\s+{_TARGET}", raw, flags)
     if m:
         return Command("tag", _number(m.group(2)), query=m.group(1).strip())
-    m = re.fullmatch(rf"{_REMOVE}\s+{_A}?(?:tags?\s+)?(?!tags?\s)(.+?)(?:\s+tags?)?\s+(?:from|off(?:\s+of)?)\s+{_TARGET}",
-                     raw, flags)
+    # Taking tags off a named meme. "untag" says "tag" already, so all its words are the tag ("untag tag team from #7").
+    # Otherwise "tag" goes before the words or after them, not both: "remove the tag laser tag from #12" -> "laser tag",
+    # "delete the cabin trip tag from #7" -> "cabin trip".
+    from_target = rf"\s+(?:from|off(?:\s+of)?)\s+{_TARGET}"
+    m = re.fullmatch(rf"{_REMOVE_WORD}\s+(?>{_A}?)tags?{from_target}", raw, flags)  # "remove the tags from #12": which?
     if m:
-        return Command("untag", _number(m.group(2)), query=m.group(1).strip())
+        return Command("untag", _number(m.group(1)))
+    for pattern in (rf"untag\s+(.+?){from_target}",
+                    rf"{_REMOVE_WORD}\s+(?>{_A}?)tags?\s+(.+?){from_target}",
+                    rf"{_REMOVE_WORD}\s+(?>{_A}?)(.+?)\s+tags?{from_target}",
+                    rf"{_REMOVE_WORD}\s+(?>{_A}?)(.+?){from_target}"):
+        m = re.fullmatch(pattern, raw, flags)
+        if m:
+            return Command("untag", _number(m.group(2)), query=m.group(1).strip())
     # "tag #12 dave, cabin trip" · "add tags to #3: x" · "tag #12 as #tooReal"
     m = re.fullmatch(rf"(?:add\s+{_A}?)?tags?\s+(?:to\s+)?(?:meme\s+)?#?(\d+)(?![\w'-])(?:\s+(?:with|as)\b)?{_WORDS}",
                      raw, flags)
