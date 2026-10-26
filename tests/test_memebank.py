@@ -986,7 +986,8 @@ def test_tags_claude_found_are_kept_whole_even_with_quotes_in_them(setup):
 
 
 @pytest.mark.parametrize("text", ["plz chuck too real on this one", "I'd like you to chuck too real on this one",
-                                  "would you mind, chuck too real on this one"])
+                                  "would you mind, chuck too real on this one", "would you mind removing cabin trip",
+                                  "would you mind chucking too real on this one"])
 def test_manners_dont_stop_claude_being_asked(setup, text):
     bank, store, tagger, client = setup
     _fill(bank, client)

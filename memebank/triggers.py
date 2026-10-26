@@ -192,15 +192,17 @@ def _number(digits: str | None) -> int | None:
 
 # Words that make a message read like an instruction rather than a search, so it's worth asking Claude what was meant
 # when the patterns below didn't recognise it: "chuck too real on this one", "this deserves a #mood tag".
+# The "-ing" forms are for "would you mind chucking ...", which has no command word to turn into.
 _INSTRUCTION_RE = re.compile(
     r"^\W*(?:add|tag|label|mark|chuck|stick|slap|put|throw|untag|remove|drop|delete|get\s+rid|take|strip|forget|retag"
-    r"|redo|restore|undo|bring)\b"
+    r"|redo|restore|undo|bring"
+    r"|labell?ing|marking|chucking|sticking|slapping|putting|throwing|getting\s+rid|undoing)\b"
     r"|\btags?\b", re.I)
 
 
 def looks_like_instruction(text: str) -> bool:
-    """After the same manners parse_command allows ("plz", "I'd like you to", "would you mind ...")."""
-    return bool(_INSTRUCTION_RE.search(_POLITE_START.sub("", (text or "").strip())))
+    """After the same manners parse_command allows ("plz", "I'd like you to", "would you mind removing ...")."""
+    return bool(_INSTRUCTION_RE.search(_without_opening_manners((text or "").strip())))
 
 
 # Manners around a command: "can you please forget #12", "#12 please", "show #12, thanks!"
@@ -218,12 +220,16 @@ _POLITE_END = re.compile(r"(?:[\s,]+(?:please|pls|plz|thanks|thank\s+you|thx|ty|
                          r"(?:\s+(?:so\s+much|a\s+lot|very\s+much))?[!.]*)+\s*$", re.I)
 
 
-def _without_manners(raw: str) -> str:
+def _without_opening_manners(raw: str) -> str:
     manners = _POLITE_START.match(raw)
     plain = raw[manners.end():] if manners else raw
     if manners and re.search(r"\bmind\b", manners.group(), re.I):  # "(please) would you mind restoring #12"
         plain = re.sub(r"^[\w-]+", lambda m: _GERUNDS.get(m.group().lower(), m.group()), plain)
-    return _POLITE_END.sub("", plain).strip().rstrip("?!.,: ")
+    return plain
+
+
+def _without_manners(raw: str) -> str:
+    return _POLITE_END.sub("", _without_opening_manners(raw)).strip().rstrip("?!.,: ")
 
 
 def parse_command(rest: str) -> Command:
