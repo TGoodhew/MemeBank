@@ -93,22 +93,42 @@ class Command:
     name: str  # help | random | stats | get | forget | restore | retag | tag | untag | search
     number: int | None = None  # None on a NUMBERED command: "this one", the meme the conversation is about
     query: str = ""
+    or_search: bool = False  # just hashtags ("#mondays"): tags for the meme being talked about, else a search
 
 
 NUMBERED = {"get", "forget", "restore", "retag", "tag", "untag"}
 
 
 _QUOTED = re.compile(r'"([^"]+)"|“([^”]+)”')
+# A hashtag has a letter in it: "#tooReal", "#2020s". "#12" is a meme number.
+_HASHTAG = re.compile(r"#(?=[\w'-]*[^\W\d_])[\w'-]+")
+
+
+def _hashtag_words(tag: str) -> str:
+    """'#tooReal' and '#too_real' -> 'too real', like the tags Claude writes. '#tooreal' stays as typed, and so does
+    '#iPhone' (it takes two lowercase letters before a capital to start a new word)."""
+    return " ".join(re.sub(r"(?<=[a-z]{2})(?=[A-Z])|[_-]+", " ", tag.lstrip("#").strip("'")).split())
+
+
+def hashtags_as_words(text: str) -> str:
+    """'#tooReal memes' -> 'too real memes': hashtags in the form they're stored in, for searching."""
+    return _HASHTAG.sub(lambda m: _hashtag_words(m.group()).lower(), text or "")
 
 
 def split_tags(text: str) -> list[str]:
     """'"Distracted boyfriend" and "Beanie Girl"' -> ['Distracted boyfriend', 'Beanie Girl']. Quoted phrases stay whole
-    (so "rock and roll" can be one tag); the rest splits on commas, semicolons, & and the word "and"."""
+    (so "rock and roll" can be one tag); the rest splits on commas, semicolons, & and the word "and", and each
+    hashtag is a tag of its own, whole ("#tooReal #rock-and-roll" -> ['too real', 'rock and roll'])."""
     text = (text or "").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")  # Slack escapes these three
     pieces = _QUOTED.split(text)  # [outside, quote, quote, outside, quote, quote, outside, ...]
     out: list[str] = []
     for i in range(0, len(pieces), 3):
-        out += [w.strip(" '\"“”") for w in re.split(r"[,;&]|\band\b", pieces[i], flags=re.I)]
+        # [words, hashtag, words, hashtag, ...]: hashtags come out first, so "and" inside one doesn't split it
+        for j, part in enumerate(re.split(f"({_HASHTAG.pattern})", pieces[i])):
+            if j % 2:
+                out.append(_hashtag_words(part))
+            else:
+                out += [w.strip(" '\"“”") for w in re.split(r"[,;&]|\band\b", part, flags=re.I)]
         if i + 2 < len(pieces):
             out.append(pieces[i + 1] or pieces[i + 2])
     return [t.strip() for t in out if t and t.strip()]
@@ -143,6 +163,13 @@ _HELP_RE = re.compile(
 
 _THIS = r"(?:(?:this|that)(?:\s+one)?|it)"
 _THIS_NOT_IT = r"(?:this|that)(?:\s+one)?"
+# Which meme a tag goes on or comes off: "this"/"it", or "#12"/"meme 12"/"12" (one capture group: the number).
+# (?![\w'-]) stops "#2020s" or "#12-monkeys" (hashtags) being read as a meme number.
+_TARGET = rf"(?:{_THIS}\b|(?:meme\s+)?#?(\d+)(?![\w'-]))"
+_A = r"(?:(?:a|an|the|some|these)\s+)"
+_WORDS = r"(?:\s*[:,-]?\s*(.+))?"  # the tags, if any
+_HASHTAGS = rf"{_HASHTAG.pattern}(?:[\s,]+(?:and\s+)?{_HASHTAG.pattern})*"
+_REMOVE = r"(?:untag|remove|drop|delete|take\s+off|take|strip)"
 
 
 def _number(digits: str | None) -> int | None:
@@ -150,7 +177,9 @@ def _number(digits: str | None) -> int | None:
 
 
 def parse_command(rest: str) -> Command:
-    raw = (rest or "").strip().rstrip("?!. ")
+    # Slack sends "#name" as a link when a channel of that name exists: it's still the tag "name" here
+    rest = re.sub(r"<#[A-Z0-9]+\|([^>|]+)>", r"#\1", rest or "")
+    raw = rest.strip().rstrip("?!. ")
     low = raw.lower()
     if not low or _HELP_RE.fullmatch(low):
         return Command("help")
@@ -171,24 +200,50 @@ def parse_command(rest: str) -> Command:
     m = re.fullmatch(rf"(?:retag|re-tag|redo)\s+(?:{_THIS}|(?:meme\s+)?#?(\d+))", low)
     if m:
         return Command("retag", _number(m.group(1)))
-    # "tag #12 dave, cabin trip": the words keep their own text (comma separated) in query. (?!\d) stops
-    # "tag #12" (no words) being read as "tag #1 with 2".
-    m = re.fullmatch(r"(?:add\s+)?tags?\s+(?:to\s+)?(?:meme\s+)?#?(\d+)(?!\d)(?:\s+with\b)?(?:\s*[:,-]?\s*(.+))?",
-                     raw, re.I | re.S)
+    # Tags: the words keep their own text (comma separated, or hashtags) in query. number=None is "this one": the bot
+    # fills in the meme the thread or DM is about, or asks which. (?![\w'-]) stops "tag #12" (no words) being read as
+    # "tag #1 with 2", and "tag #12-monkeys" (a hashtag) being read as meme #12.
+    flags = re.I | re.S
+    # A meme named at the end wins over a number the tag starts with: "add a tag 12 monkeys to #7" is for #7, and
+    # "remove the tag day off from #12" takes "day off" off #12. (?!tags?\s) leaves "add tags to #3: x" for below.
+    m = re.fullmatch(rf"add\s+{_A}?(?:tags?\s+)?(?!tags?\s)(.+?)\s+(?:to|on)\s+{_TARGET}", raw, flags)
+    if m:
+        return Command("tag", _number(m.group(2)), query=m.group(1).strip())
+    m = re.fullmatch(rf"{_REMOVE}\s+{_A}?(?:tags?\s+)?(?!tags?\s)(.+?)(?:\s+tags?)?\s+(?:from|off(?:\s+of)?)\s+{_TARGET}",
+                     raw, flags)
+    if m:
+        return Command("untag", _number(m.group(2)), query=m.group(1).strip())
+    # "tag #12 dave, cabin trip" · "add tags to #3: x" · "tag #12 as #tooReal"
+    m = re.fullmatch(rf"(?:add\s+{_A}?)?tags?\s+(?:to\s+)?(?:meme\s+)?#?(\d+)(?![\w'-])(?:\s+(?:with|as)\b)?{_WORDS}",
+                     raw, flags)
     if m:
         return Command("tag", int(m.group(1)), query=(m.group(2) or "").strip())
-    m = re.fullmatch(r"(?:untag|remove\s+tags?)\s+(?:meme\s+)?#?(\d+)(?!\d)(?:\s*[:,-]?\s*(.+))?", raw, re.I | re.S)
+    m = re.fullmatch(rf"(?:untag|remove\s+tags?)\s+(?:meme\s+)?#?(\d+)(?![\w'-]){_WORDS}", raw, flags)  # "untag #12 squad"
     if m:
         return Command("untag", int(m.group(1)), query=(m.group(2) or "").strip())
-    m = re.fullmatch(rf"untag\s+(?:{_THIS}\b)?(?:\s*[:,-]?\s*(.+))?", raw, re.I | re.S)  # "untag this cabin trip"
+    # "untag this laser tag" · "untag tag team" · "untag cabin trip": everything after "untag" (and "this") is the tag
+    m = re.fullmatch(rf"untag\s+(?:{_TARGET})?{_WORDS}", raw, flags)
     if m:
-        return Command("untag", None, query=(m.group(1) or "").strip())
-    # "Tag it "Distracted boyfriend" and "Beanie Girl"": no number, so number=None. In a DM the bot fills in the meme
-    # from its last "Banked #N" message there; anywhere else it asks which meme.
-    m = re.fullmatch(r"(?:please\s+)?(?:tag\s+(?:it|this(?:\s+one)?|that(?:\s+one)?)|add\s+tags?)"
-                     r"(?:\s+(?:with|as)\b)?(?:\s*[:,-]?\s*(.+))?", raw, re.I | re.S)
+        return Command("untag", _number(m.group(1)), query=(m.group(2) or "").strip())
+    # "remove the tag too real" · "drop the #tooReal tag" · "take the tag cabin trip off" · "take #tooReal off"
+    for pattern in (rf"take\s+{_A}?tags?\s+(.+?)\s+off",  # "take ... off" before "take ...", so "off" isn't a tag
+                    rf"{_REMOVE}\s+{_A}?tags?\b(?:\s+(.+))?",
+                    rf"{_REMOVE}\s+{_A}?(.+?)\s+tags?",
+                    rf"{_REMOVE}\s+({_HASHTAGS})(?:\s+off)?"):
+        m = re.fullmatch(pattern, raw, flags)
+        if m:
+            return Command("untag", None, query=(m.group(1) or "").strip())
+    # "Tag it "Distracted boyfriend" and "Beanie Girl"" · "add a tag #tooReal" · "tag this as too real" ·
+    # "tag #tooReal" · "add #tooReal"
+    m = re.fullmatch(rf"(?:please\s+)?(?:tag\s+{_THIS}\b|tag\b|add\s+{_A}?tags?\b)(?:\s+(?:with|as|called)\b)?{_WORDS}",
+                     raw, flags)
     if m:
         return Command("tag", None, query=(m.group(1) or "").strip())
+    m = re.fullmatch(rf"add\s+({_HASHTAGS})", raw, flags)
+    if m:
+        return Command("tag", None, query=m.group(1))
+    if re.fullmatch(_HASHTAGS, raw):  # just "#tooReal": a tag in a meme's thread, a search anywhere else
+        return Command("tag", None, query=raw, or_search=True)
     m = re.fullmatch(r"(?:(?:show|get|post)\s+(?:me\s+)?)?(?:meme\s+)?(?:#|number\s+|no\.?\s*)(\d+)", low)
     if m:
         return Command("get", int(m.group(1)))

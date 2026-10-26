@@ -86,8 +86,12 @@ def build_app(cfg, bank: MemeBank) -> App:
             if number:
                 rest = f"tag #{number} {rest}"
         elif channel_type == "im" and cmd.name in NUMBERED and cmd.number is None:
-            # "Tag it ..." straight into the DM: the meme is the one the bot last said it banked here.
-            about = banked_number_in_thread(client, channel, thread_ts) if in_thread else latest_banked_in_dm(client, channel)
+            # "Tag it ..." straight into the DM: the meme is the one the bot last said it banked here. A bare "#mondays"
+            # sent straight into the DM is a search, though, as it always was.
+            if in_thread:
+                about = banked_number_in_thread(client, channel, thread_ts)
+            elif not cmd.or_search:
+                about = latest_banked_in_dm(client, channel)
         elif in_thread and cmd.name in NUMBERED and cmd.number is None:
             # "@Meme Bank tag it too real" replied under a meme in the channel
             numbers, unbanked = meme_in_thread(client, channel, thread_ts, event["ts"])
