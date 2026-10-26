@@ -244,6 +244,14 @@ def test_classify(text, has_img, dm, expect):
     ("untag tag team", "untag", None, "tag team"),
     ("take the tag cabin trip off", "untag", None, "cabin trip"),
     ("add tags to #3", "tag", 3, ""),
+    # tags with the word "tag" in them, with the meme named at the end (#68)
+    ("add tags tag team to #7", "tag", 7, "tag team"),
+    ("add a tag tag team to #7", "tag", 7, "tag team"),
+    ("untag tag team from #7", "untag", 7, "tag team"),
+    ("remove the tag laser tag from #12", "untag", 12, "laser tag"),
+    ("remove tag tag team from #7", "untag", 7, "tag team"),
+    ("untag cabin trip from it", "untag", None, "cabin trip"),
+    ("remove the tags from #12", "untag", 12, ""),  # no tag named: the bank asks which
     ("memes tagged too real", "search", None, "memes tagged too real"),
     ("find the add-a-tag meme", "search", None, "the add-a-tag meme"),
     ("what's #12", "search", None, "what's #12"),
