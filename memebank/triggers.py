@@ -170,7 +170,6 @@ _A = r"(?:(?:a|an|the|some|these)\s+)"
 _WORDS = r"(?:\s*[:,-]?\s*(.+))?"  # the tags, if any
 _HASHTAGS = rf"{_HASHTAG.pattern}(?:[\s,]+(?:and\s+)?{_HASHTAG.pattern})*"
 _REMOVE = r"(?:untag|remove|drop|delete|take\s+off|take|strip)"
-_OFF = rf"(?:\s+off)?(?:\s+(?:from|off(?:\s+of)?)\s+{_TARGET})?"  # "... off", "... from #12", "... off this"
 
 
 def _number(digits: str | None) -> int | None:
@@ -205,6 +204,15 @@ def parse_command(rest: str) -> Command:
     # fills in the meme the thread or DM is about, or asks which. (?![\w'-]) stops "tag #12" (no words) being read as
     # "tag #1 with 2", and "tag #12-monkeys" (a hashtag) being read as meme #12.
     flags = re.I | re.S
+    # A meme named at the end wins over a number the tag starts with: "add a tag 12 monkeys to #7" is for #7, and
+    # "remove the tag day off from #12" takes "day off" off #12. (?!tags?\s) leaves "add tags to #3: x" for below.
+    m = re.fullmatch(rf"add\s+{_A}?(?:tags?\s+)?(?!tags?\s)(.+?)\s+(?:to|on)\s+{_TARGET}", raw, flags)
+    if m:
+        return Command("tag", _number(m.group(2)), query=m.group(1).strip())
+    m = re.fullmatch(rf"{_REMOVE}\s+{_A}?(?:tags?\s+)?(?!tags?\s)(.+?)(?:\s+tags?)?\s+(?:from|off(?:\s+of)?)\s+{_TARGET}",
+                     raw, flags)
+    if m:
+        return Command("untag", _number(m.group(2)), query=m.group(1).strip())
     # "tag #12 dave, cabin trip" · "add tags to #3: x" · "tag #12 as #tooReal"
     m = re.fullmatch(rf"(?:add\s+{_A}?)?tags?\s+(?:to\s+)?(?:meme\s+)?#?(\d+)(?![\w'-])(?:\s+(?:with|as)\b)?{_WORDS}",
                      raw, flags)
@@ -213,18 +221,18 @@ def parse_command(rest: str) -> Command:
     m = re.fullmatch(rf"(?:untag|remove\s+tags?)\s+(?:meme\s+)?#?(\d+)(?![\w'-]){_WORDS}", raw, flags)  # "untag #12 squad"
     if m:
         return Command("untag", int(m.group(1)), query=(m.group(2) or "").strip())
-    m = re.fullmatch(rf"add\s+{_A}?(?:tags?\s+)?(.+?)\s+(?:to|on)\s+{_TARGET}", raw, flags)  # "add #tooReal to #12"
+    # "untag this laser tag" · "untag tag team" · "untag cabin trip": everything after "untag" (and "this") is the tag
+    m = re.fullmatch(rf"untag\s+(?:{_TARGET})?{_WORDS}", raw, flags)
     if m:
-        return Command("tag", _number(m.group(2)), query=m.group(1).strip())
-    # "remove the tag too real from #12" · "drop the #tooReal tag" · "take #tooReal off" · "untag this cabin trip"
-    for pattern in (rf"{_REMOVE}\s+{_A}?tags?\b(?:\s+(.+?))?{_OFF}",
-                    rf"{_REMOVE}\s+{_A}?(.+?)\s+tags?{_OFF}",
-                    rf"{_REMOVE}\s+({_HASHTAGS}){_OFF}",
-                    rf"untag\s+(?:{_TARGET})?{_WORDS}"):
+        return Command("untag", _number(m.group(1)), query=(m.group(2) or "").strip())
+    # "remove the tag too real" · "drop the #tooReal tag" · "take the tag cabin trip off" · "take #tooReal off"
+    for pattern in (rf"take\s+{_A}?tags?\s+(.+?)\s+off",  # "take ... off" before "take ...", so "off" isn't a tag
+                    rf"{_REMOVE}\s+{_A}?tags?\b(?:\s+(.+))?",
+                    rf"{_REMOVE}\s+{_A}?(.+?)\s+tags?",
+                    rf"{_REMOVE}\s+({_HASHTAGS})(?:\s+off)?"):
         m = re.fullmatch(pattern, raw, flags)
         if m:
-            words, number = (m.group(2), m.group(1)) if pattern.startswith("untag") else (m.group(1), m.group(2))
-            return Command("untag", _number(number), query=(words or "").strip())
+            return Command("untag", None, query=(m.group(1) or "").strip())
     # "Tag it "Distracted boyfriend" and "Beanie Girl"" · "add a tag #tooReal" · "tag this as too real" ·
     # "tag #tooReal" · "add #tooReal"
     m = re.fullmatch(rf"(?:please\s+)?(?:tag\s+{_THIS}\b|tag\b|add\s+{_A}?tags?\b)(?:\s+(?:with|as|called)\b)?{_WORDS}",
