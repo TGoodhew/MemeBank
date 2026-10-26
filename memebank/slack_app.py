@@ -7,7 +7,7 @@ import re
 from slack_bolt import App
 
 from .core import CONFIRM_EVENT, MemeBank, images_in
-from .triggers import NEGATION_RE, NUMBERED, classify, usage
+from .triggers import NEGATION_RE, NUMBERED, classify, parse_command, usage
 
 log = logging.getLogger(__name__)
 
@@ -78,13 +78,18 @@ def build_app(cfg, bank: MemeBank) -> App:
             return
         rest = trig.rest
         user = event.get("user", "")
-        cmd = bank.understand(rest)
+        cmd = parse_command(rest)
         about = None  # the meme "it"/"this" means
+        number = None
         if channel_type == "im" and in_thread and cmd.name == "search":
             # Plain words replied under the bot's "Banked #12" DM are tags for #12, not a search.
             number = banked_number_in_thread(client, channel, thread_ts)
-            if number:
-                rest, cmd = f"tag #{number} {rest}", None  # handle_ask reads it again as a tag
+        if number:
+            rest, cmd = f"tag #{number} {rest}", None  # handle_ask reads it again as a tag
+        elif cmd.name == "search":
+            cmd = bank.understand(rest)  # wording the patterns missed may still be a command: Claude says which
+        if cmd is None:
+            pass
         elif channel_type == "im" and cmd.name in NUMBERED and cmd.number is None:
             # "Tag it ..." straight into the DM: the meme is the one the bot last said it banked here. A bare "#mondays"
             # sent straight into the DM is a search, though, as it always was.

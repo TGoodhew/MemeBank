@@ -936,3 +936,26 @@ def test_plain_searches_and_known_commands_dont_ask_claude_what_they_meant(setup
     _fill(bank, client)
     bank.handle_ask(client, "CGEN", "UZAK", text)
     assert tagger.interpret_calls == []
+
+
+def test_the_did_you_mean_keeps_the_quotes_that_hold_a_tag_together(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    tagger.meant = {"command": "tag", "tags": ["rock and roll", "cabin trip"], "sure": False}
+    bank.handle_ask(client, "CGEN", "UZAK", "chuck rock and roll and cabin trip on it", about=2)
+    said = client.named("chat_postMessage")[-1]["text"]
+    assert said == 'Did you mean `hey meme bank, tag this "rock and roll", cabin trip`?'
+    bank.handle_ask(client, "CGEN", "UZAK", 'tag this "rock and roll", cabin trip', about=2)  # typing it back
+    assert store.get(2).extra_tags == ["rock and roll", "cabin trip"]
+
+
+def test_show_this_one_says_which_it_is_and_unsure_asks_rather_than_posting(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    tagger.meant = {"command": "get", "sure": False}
+    bank.handle_ask(client, "CGEN", "UZAK", "put this one up again", about=2)
+    assert client.named("chat_postMessage")[-1]["text"] == "Did you mean `hey meme bank, what number is this?`?"
+    tagger.meant = {"command": "get"}
+    bank.handle_ask(client, "CGEN", "UZAK", "put this one up again", about=2)
+    assert client.named("chat_postMessage")[-1]["text"].startswith("That's *#2: Baguette diplomacy*")
+    assert not client.named("files_upload_v2")

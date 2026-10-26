@@ -260,20 +260,22 @@ class MemeBank:
             log.exception("Couldn't ask Claude what %r meant; searching instead", rest)
             return cmd
         name, number, tags = meant["command"], meant["number"], meant["tags"]
-        if name == "search":
+        if name == "search":  # sure or not, a search is what the bot did with this before Claude was asked
             return Command("search", query=meant["query"] or cmd.query)
         target = f"#{number}" if number else "this"
-        words = ", ".join(f'"{t}"' for t in tags)  # quoted, so "rock and roll" stays one tag
         if name in ("tag", "untag"):
-            understood = Command(name, number, query=words)
-            said = f"{name} {target} {', '.join(tags)}"
+            understood = Command(name, number, query=", ".join(f'"{t}"' for t in tags))  # "rock and roll" stays one tag
+            # the suggestion quotes only what needs it, so typing it back gives the same tags
+            shown = ", ".join(f'"{t}"' if re.search(r"[,;&]|\band\b", t) else t for t in tags)
+            said = f"{name} {target} {shown}"
+        elif name == "get" and not number:  # "show me this one": it's already in view, so say which it is instead
+            understood, said = Command("info"), "what number is this?"
         elif name in NUMBERED:
             understood = Command(name, number)
-            said = {"get": f"#{number}" if number else "", "info": f"what are the tags on {target}"}.get(
-                name, f"{name} {target}")
+            said = {"get": f"#{number}", "info": f"what are the tags on {target}"}.get(name, f"{name} {target}")
         else:
             understood, said = Command(name), name
-        if not meant["sure"] and said:
+        if not meant["sure"]:
             return Command("clarify", query=said.strip())
         return understood
 
