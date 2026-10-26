@@ -240,7 +240,8 @@ def build_app(cfg, bank: MemeBank) -> App:
         return msg.get("user") == bot_user_id or bool(bot_id and msg.get("bot_id") == bot_id)
 
     def thread_before(client, channel: str, thread_ts: str, before: str) -> list[dict]:
-        """A thread's messages from before `before`, nearest first. Raises if Slack can't be read."""
+        """A thread's messages from before `before`, nearest first. Raises if Slack can't be read, or if the thread is
+        too long to read to the end (what's nearest would be in the part left unread)."""
         msgs, cursor = [], None
         for _ in range(MAX_THREAD_PAGES):  # replies come oldest first, so the nearest ones can be pages in
             resp = client.conversations_replies(channel=channel, ts=thread_ts, latest=before, inclusive=False,
@@ -249,6 +250,8 @@ def build_app(cfg, bank: MemeBank) -> App:
             cursor = (resp.get("response_metadata") or {}).get("next_cursor")
             if not cursor:
                 break
+        if cursor:
+            raise RuntimeError(f"Thread {channel}/{thread_ts} is more than {MAX_THREAD_PAGES} pages long")
         return sorted((m for m in msgs if float(m.get("ts", 0)) < float(before)), key=lambda m: float(m["ts"]),
                       reverse=True)
 

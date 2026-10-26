@@ -682,3 +682,18 @@ def test_a_suggestion_in_a_bank_it_dm_thread_is_answered_before_the_older_questi
         assert bank.asks == [("DTONY", "UTONY", "forget #12", "9.0")]
     else:
         assert bank.asks == [] and bank.said[0][1].startswith("OK, I'll leave it.")
+
+
+def test_a_thread_too_long_to_read_to_the_end_doesnt_trust_what_was_read(app_and_bank, monkeypatch):
+    # past the page limit, the newest message read isn't the one just before: neither a suggestion nor a meme from it
+    monkeypatch.setattr("memebank.slack_app.MAX_THREAD_PAGES", 1)
+    app, bank, history = app_and_bank
+    history[("pages", "10.0")] = [
+        [{"ts": "10.0", "user": "UTONY", "text": "lol"},
+         {"ts": "11.0", "thread_ts": "10.0", "user": BOT, "text": "Did you mean `hey meme bank, forget #12`?"}],
+        [{"ts": "15.0", "thread_ts": "10.0", "user": "UKEVIN", "text": "chat"}],  # past the limit
+    ]
+    send(app, _reply("yes", ts="20.0"))
+    assert bank.asks == [] and bank.said == []
+    send(app, _reply(f"<@{BOT}> retag it", ts="21.0"))
+    assert bank.abouts == [None]  # left for the bank to ask which meme
