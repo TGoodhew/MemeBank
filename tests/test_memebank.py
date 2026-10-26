@@ -253,6 +253,12 @@ def test_classify(text, has_img, dm, expect):
     ("can you show me stats please", "stats", None, ""),
     ("i'd like you to retag this", "retag", None, ""),
     ("pls add a tag #tooReal", "tag", None, "#tooReal"),
+    ("would you mind, restore #12", "restore", 12, ""),  # (#66)
+    ("would you mind restoring #12", "restore", 12, ""),
+    ("do you mind tagging this too real", "tag", None, "too real"),
+    ("would you mind please removing the tag cabin trip", "untag", None, "cabin trip"),
+    ("would you mind re-tagging it", "retag", None, ""),
+    ("would you mind finding the France meme", "search", None, "the France meme"),
     ("remove this from the bank", "forget", None, ""),
     ("remove it from the vault", "forget", None, ""),
     ("redo the tags", "retag", None, ""),

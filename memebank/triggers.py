@@ -144,8 +144,9 @@ def split_tags(text: str) -> list[str]:
 
 
 _FILLER = re.compile(
-    r"^(?:(?:can|could|would|will)\s+you\s+)?(?:please\s+)?"
-    r"(?:(?:find|show|get|give|fetch|dig\s+up|pull\s+up|bring\s+up|post|grab)\s+(?:me\s+|us\s+)?)?",
+    r"^(?:(?:(?:would|do)\s+you\s+mind|(?:can|could|would|will)\s+you)\s+)?(?:please\s+)?"
+    r"(?:(?:find(?:ing)?|show(?:ing)?|get(?:ting)?|giv(?:e|ing)|fetch(?:ing)?|dig(?:ging)?\s+up|pull(?:ing)?\s+up"
+    r"|bring(?:ing)?\s+up|post(?:ing)?|grab(?:bing)?)\s+(?:me\s+|us\s+)?)?",
     re.I,
 )
 
@@ -186,12 +187,26 @@ def _number(digits: str | None) -> int | None:
 
 
 # Manners around a command: "can you please forget #12", "#12 please", "show #12, thanks!"
-_POLITE_START = re.compile(r"^(?:(?:(?:can|could|would|will)\s+you|(?:i'?d|i\s+would)\s+like\s+you\s+to|kindly|please|pls"
-                           r"|plz)[\s,]+)+", re.I)
+_POLITE_START = re.compile(r"^(?:(?:(?:would|do)\s+you\s+mind|(?:can|could|would|will)\s+you"
+                           r"|(?:i'?d|i\s+would)\s+like\s+you\s+to|kindly|please|pls|plz)[\s,]+)+", re.I)
+_MIND = re.compile(r"(?:would|do)\s+you\s+mind\b", re.I)
+# "would you mind restoring #12": the command word it stands for
+_GERUNDS = {"tagging": "tag", "untagging": "untag", "retagging": "retag", "re-tagging": "re-tag", "redoing": "redo",
+            "adding": "add", "removing": "remove", "deleting": "delete", "dropping": "drop", "taking": "take",
+            "stripping": "strip", "forgetting": "forget", "withdrawing": "withdraw", "restoring": "restore",
+            "bringing": "bring", "showing": "show", "posting": "post", "getting": "get", "giving": "give",
+            "finding": "find", "explaining": "explain", "telling": "tell"}
 MAX_POLITE = 300  # characters: longer messages aren't commands with manners on
 # Only [\s,]+ takes the spaces between words, so there's one way to match and a long message can't make it crawl.
 _POLITE_END = re.compile(r"(?:[\s,]+(?:please|pls|plz|thanks|thank\s+you|thx|ty|ta|cheers|:pray:|🙏)"
                          r"(?:\s+(?:so\s+much|a\s+lot|very\s+much))?[!.]*)+\s*$", re.I)
+
+
+def _without_manners(raw: str) -> str:
+    plain = _POLITE_START.sub("", raw)
+    if _MIND.match(raw):  # "would you mind restoring #12" -> "restore #12"
+        plain = re.sub(r"^[\w-]+", lambda m: _GERUNDS.get(m.group().lower(), m.group()), plain)
+    return _POLITE_END.sub("", plain).strip().rstrip("?!.,: ")
 
 
 def parse_command(rest: str) -> Command:
@@ -201,7 +216,7 @@ def parse_command(rest: str) -> Command:
     # A command is the same command with or without the manners. A search keeps them, though, so "please clap" or
     # "thank you memes" are still what gets searched for. Commands are short, so a long message isn't looked at this
     # way (stripping manners from the end of one takes time that grows with its length squared).
-    plain = _POLITE_END.sub("", _POLITE_START.sub("", raw)).strip().rstrip("?!.,: ") if len(raw) <= MAX_POLITE else ""
+    plain = _without_manners(raw) if len(raw) <= MAX_POLITE else ""
     if plain and plain != raw:
         cmd = _parse(plain)
         if cmd.or_search:  # "#paris thank you": if there's no meme to tag, search for all of it
