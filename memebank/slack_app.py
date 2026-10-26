@@ -91,7 +91,7 @@ def build_app(cfg, bank: MemeBank) -> App:
         elif in_thread and cmd.name in NUMBERED and cmd.number is None:
             # "@Meme Bank tag it too real" replied under a meme in the channel
             numbers, unbanked = meme_in_thread(client, channel, thread_ts, event["ts"])
-            if unbanked is not None:
+            if unbanked is not None and (cmd.name == "tag" or not numbers):  # (else: what's banked is what "it" can be)
                 if cmd.name != "tag":
                     bank.say(client, channel, "That one isn't in the vault yet. React :bank: on it to bank it.", thread_ts)
                     return
@@ -206,7 +206,7 @@ def build_app(cfg, bank: MemeBank) -> App:
     def meme_in_thread(client, channel: str, thread_ts: str, before: str) -> tuple[list[int], dict | None]:
         """The meme a channel thread is about: the nearest message above `before` that's an image post (the thread's
         own, or a reply) or the bot naming a meme ("Banked as *#12: ...", a meme it posted, "Tagged *#12: ...").
-        Returns its number(s); ([], post) when the nearest image post isn't banked yet; ([], None) if there's none."""
+        Returns (the banked numbers, the post if any of its images isn't banked yet); ([], None) if there's none."""
         try:
             msgs, cursor = [], None
             for _ in range(MAX_THREAD_PAGES):  # replies come oldest first, so the nearest ones can be pages in
@@ -226,7 +226,7 @@ def build_app(cfg, bank: MemeBank) -> App:
                 elif not msg.get("bot_id") and images_in(msg, channel):
                     found = [bank.store.find_by_source(r.key) for r in images_in(msg, channel)]
                     numbers = list(dict.fromkeys(m.number for m in found if m))
-                    return (numbers, None) if numbers else ([], msg)
+                    return numbers, (None if all(found) else msg)
         except Exception:  # noqa: BLE001
             log.exception("Couldn't work out the meme in thread %s/%s", channel, thread_ts)
         return [], None

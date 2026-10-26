@@ -527,3 +527,15 @@ def test_a_long_threads_later_pages_are_read_for_the_nearest_meme(app_and_bank):
     ]
     send(app, _reply(f"<@{BOT}> tag it too real", ts="20.0"))
     assert bank.abouts == [40]
+
+
+def test_tagging_a_partly_banked_post_banks_the_rest_and_asks_which(app_and_bank):
+    app, bank, history = app_and_bank
+    bank.banked["slack:F1"] = SimpleNamespace(number=12, withdrawn_at="")  # F2 isn't banked yet
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "two", "files": IMG + [{**IMG[0], "id": "F2"}]}]
+    bank.deposit_results = [SimpleNamespace(meme=SimpleNamespace(number=12), status="already"),
+                            SimpleNamespace(meme=SimpleNamespace(number=13), status="new")]
+    send(app, _reply(f"<@{BOT}> tag it too real"))
+    assert bank.deposits == [("CGEN", "10.0")] and bank.asks == [] and "Which one, #12 or #13?" in bank.said[0][1]
+    send(app, _reply(f"<@{BOT}> retag it", ts="21.0"))  # anything else goes with what's banked
+    assert bank.abouts == [12] and len(bank.deposits) == 1
