@@ -7,11 +7,12 @@ import re
 from slack_bolt import App
 
 from .core import CONFIRM_EVENT, MemeBank, images_in
-from .triggers import NEGATION_RE, NUMBERED, classify, parse_command, usage
+from .triggers import NEGATION_RE, NUMBERED, Trigger, classify, parse_command, strip_mentions, usage
 
 log = logging.getLogger(__name__)
 
 BANKED_RE = re.compile(r"Banked (?:as )?\*#(\d+)")  # the bot's own "Banked as *#12: ..." messages
+SUGGESTED_RE = re.compile(r"Did you mean `hey meme bank, (.+)`\?", re.S)  # its "Did you mean ...?" when Claude wasn't sure
 # How the bot names a meme in anything it says about one: "Banked as *#12: ...", a posted meme ("*#12: ...*"),
 # "Already in the vault as *#12: ...", "Tagged *#12: ...".
 MEME_REF_RE = re.compile(r"\*#(\d+):")
@@ -25,6 +26,16 @@ NO_RE = re.compile(r"^\s*n\b|\b(?:no|nope|nah|not|don'?t|do not|never|leave it|s
 ANSWER_WORDS = {"y", "yes", "yep", "yeah", "yup", "sure", "ok", "okay", "please", "bank", "store", "do", "it", "go",
                 "ahead", "n", "no", "nope", "nah", "not", "don't", "dont", "never", "leave", "skip", "stop", "thanks",
                 "thank", "you", "ta", "cheers"}
+
+
+def yes_or_no(text: str) -> str | None:
+    """"yes" or "no" if that's all a message says ("yes please", "nah, leave it"), else None."""
+    plain = strip_mentions(text).replace("’", "'").replace("‘", "'")
+    if not set(re.findall(r"[\w']+", plain.lower())) <= ANSWER_WORDS:
+        return None
+    if NO_RE.search(plain) or NEGATION_RE.search(plain):
+        return "no"
+    return "yes" if YES_RE.match(plain) else None
 
 IGNORED_SUBTYPES = {"bot_message", "message_deleted", "channel_join", "channel_leave", "channel_topic",
                     "channel_purpose", "channel_name", "pinned_item", "unpinned_item", "tombstone"}
@@ -65,9 +76,20 @@ def build_app(cfg, bank: MemeBank) -> App:
         text = event.get("text", "")
         thread_ts = event.get("thread_ts")
         in_thread = bool(thread_ts) and thread_ts != event.get("ts")
-        if channel_type == "im" and not images_in(event, channel) and answer_confirm(client, event, in_thread):
+        has_images = bool(images_in(event, channel))
+        if channel_type == "im" and not has_images and answer_confirm(client, event, in_thread):
             return
-        trig = classify(text, bool(images_in(event, channel)), bot_user_id, is_dm=channel_type == "im")
+        trig = classify(text, has_images, bot_user_id, is_dm=channel_type == "im")
+        # "yes" to the bot's "Did you mean `hey meme bank, ...`?" just before does it, whether or not it's addressed to
+        # the bot; "no" leaves it (rather than searching for "no")
+        answer = yes_or_no(trig.rest if trig else "" if has_images else text)
+        suggested = suggestion_before(client, event, in_thread) if answer else None
+        if suggested and answer == "no":
+            bank.say(client, channel, "OK, I'll leave it. Say it another way, or `hey meme bank, help` lists what I "
+                                      "can do.", thread_ts)
+            return
+        if suggested:
+            trig = Trigger("ask", suggested)
         if trig is None:
             return
         if trig.kind == "bank":
@@ -212,23 +234,46 @@ def build_app(cfg, bank: MemeBank) -> App:
         banked = [(float(msg["ts"]), n) for msg in msgs for n in banked_numbers([msg])]
         return max(banked)[1] if banked else None
 
+    def by_bot(msg: dict) -> bool:
+        return msg.get("user") == bot_user_id or bool(bot_id and msg.get("bot_id") == bot_id)
+
+    def thread_before(client, channel: str, thread_ts: str, before: str) -> list[dict]:
+        """A thread's messages from before `before`, nearest first. Raises if Slack can't be read."""
+        msgs, cursor = [], None
+        for _ in range(MAX_THREAD_PAGES):  # replies come oldest first, so the nearest ones can be pages in
+            resp = client.conversations_replies(channel=channel, ts=thread_ts, latest=before, inclusive=False,
+                                                limit=200, cursor=cursor)
+            msgs += resp.get("messages", [])
+            cursor = (resp.get("response_metadata") or {}).get("next_cursor")
+            if not cursor:
+                break
+        return sorted((m for m in msgs if float(m.get("ts", 0)) < float(before)), key=lambda m: float(m["ts"]),
+                      reverse=True)
+
+    def suggestion_before(client, event, in_thread: bool) -> str | None:
+        """The command in the bot's "Did you mean `hey meme bank, ...`?", if that's the message just before this one
+        (in its thread, or in the channel or DM when it isn't in a thread)."""
+        channel, ts = event["channel"], event["ts"]
+        try:
+            if in_thread:
+                msgs = thread_before(client, channel, event["thread_ts"], ts)
+            else:
+                msgs = client.conversations_history(channel=channel, latest=ts, inclusive=False, limit=1
+                                                    ).get("messages", [])
+        except Exception:  # noqa: BLE001
+            log.exception("Couldn't read what came before %s/%s", channel, ts)
+            return None
+        last = msgs[0] if msgs else {}
+        m = SUGGESTED_RE.fullmatch(last.get("text", "")) if by_bot(last) else None
+        return m.group(1) if m else None
+
     def meme_in_thread(client, channel: str, thread_ts: str, before: str) -> tuple[list[int], dict | None]:
         """The meme a channel thread is about: the nearest message above `before` that's an image post (the thread's
         own, or a reply) or the bot naming a meme ("Banked as *#12: ...", a meme it posted, "Tagged *#12: ...").
         Returns (the banked numbers, the post if any of its images isn't banked yet); ([], None) if there's none."""
         try:
-            msgs, cursor = [], None
-            for _ in range(MAX_THREAD_PAGES):  # replies come oldest first, so the nearest ones can be pages in
-                resp = client.conversations_replies(channel=channel, ts=thread_ts, latest=before, inclusive=False,
-                                                    limit=200, cursor=cursor)
-                msgs += resp.get("messages", [])
-                cursor = (resp.get("response_metadata") or {}).get("next_cursor")
-                if not cursor:
-                    break
-            for msg in sorted(msgs, key=lambda m: float(m.get("ts", 0)), reverse=True):  # nearest first
-                if float(msg.get("ts", 0)) >= float(before):
-                    continue
-                if msg.get("user") == bot_user_id or (bot_id and msg.get("bot_id") == bot_id):
+            for msg in thread_before(client, channel, thread_ts, before):
+                if by_bot(msg):
                     numbers = [int(n) for n in MEME_REF_RE.findall(msg.get("text", ""))]
                     if numbers:
                         return list(dict.fromkeys(numbers)), None

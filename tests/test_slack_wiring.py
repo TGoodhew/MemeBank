@@ -588,3 +588,80 @@ def test_tag_replies_in_the_banked_dm_thread_never_go_to_claude(app_and_bank):
     send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "9.5",
                "thread_ts": "9.0", "text": "price tag, sticker"})
     assert bank.asks == [("DTONY", "UTONY", "tag #7 price tag, sticker", "9.0")] and bank.understood == []
+
+
+# ---------------------------------------------------------------- answering "Did you mean ...?"
+def _suggested_in_thread(history, suggestion="tag this functionally useless"):
+    """The thread from the screenshot: a meme banked, an instruction Claude wasn't sure of, the bot's suggestion."""
+    history["10.0"] = [
+        {"ts": "10.0", "user": "UTONY", "text": f"<@{BOT}> a real car in Oregon", "files": IMG},
+        {"ts": "11.0", "thread_ts": "10.0", "user": BOT, "bot_id": "BBOT", "text": "Banked as *#35: Hippie Jeep*\n_jeep_"},
+        {"ts": "12.0", "thread_ts": "10.0", "user": "UTONY",
+         "text": f"<@{BOT}> I noticed that you didn't tag it \"Functionally useless\""},
+        {"ts": "13.0", "thread_ts": "10.0", "user": BOT, "bot_id": "BBOT",
+         "text": f"Did you mean `hey meme bank, {suggestion}`?"},
+    ]
+
+
+@pytest.mark.parametrize("answer", ["yes", "Yes please!", f"<@{BOT}> yes", "hey meme bank, yep", "ok do it"])
+def test_yes_to_did_you_mean_does_what_it_suggested(app_and_bank, answer):
+    app, bank, history = app_and_bank
+    _suggested_in_thread(history)
+    send(app, _reply(answer, ts="14.0", user="UTONY"))
+    assert bank.asks == [("CGEN", "UTONY", "tag this functionally useless", "10.0")] and bank.abouts == [35]
+    assert bank.understood == []  # the suggestion is a command already: no asking Claude again
+
+
+@pytest.mark.parametrize("answer", ["no", f"<@{BOT}> nope", "no thanks", "nah, leave it"])
+def test_no_to_did_you_mean_leaves_it(app_and_bank, answer):
+    app, bank, history = app_and_bank
+    _suggested_in_thread(history)
+    send(app, _reply(answer, ts="14.0", user="UTONY"))
+    assert bank.asks == [] and len(bank.said) == 1 and bank.said[0][0::2] == ("CGEN", "10.0")
+    assert bank.said[0][1].startswith("OK, I'll leave it.")
+
+
+def test_yes_only_answers_a_suggestion_right_before_it(app_and_bank):
+    app, bank, history = app_and_bank
+    _suggested_in_thread(history)
+    history["10.0"].append({"ts": "13.5", "thread_ts": "10.0", "user": "UZAK", "text": "is this real?"})
+    send(app, _reply("yes", ts="14.0", user="UTONY"))  # Tony answering Zak
+    assert bank.asks == [] and bank.said == []
+
+
+@pytest.mark.parametrize("text", ["yes, and cabin trip too", "thanks"])
+def test_more_than_a_yes_after_a_suggestion_isnt_an_answer(app_and_bank, text):
+    app, bank, history = app_and_bank
+    _suggested_in_thread(history)
+    send(app, _reply(text, ts="14.0", user="UTONY"))
+    assert bank.asks == [] and bank.said == []
+
+
+def test_only_the_bots_own_suggestion_counts(app_and_bank):
+    app, bank, history = app_and_bank
+    _suggested_in_thread(history)
+    history["10.0"][-1] = dict(history["10.0"][-1], user="UZAK", bot_id=None)  # someone typing it, not the bot
+    send(app, _reply("yes", ts="14.0", user="UTONY"))
+    assert bank.asks == [] and bank.said == []
+
+
+def test_a_yes_to_the_bot_with_no_suggestion_before_it_is_handled_as_before(app_and_bank):
+    app, bank, history = app_and_bank
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "lol"}]
+    send(app, _reply(f"<@{BOT}> yes", ts="14.0", user="UTONY"))
+    assert bank.asks == [("CGEN", "UTONY", "yes", "10.0")]
+
+
+def test_yes_to_a_suggestion_straight_into_the_dm(app_and_bank):
+    app, bank, history = app_and_bank
+    mine = {"ts": "101.0", "user": "UTONY", "text": "yes"}
+    history[None] = [mine, {"ts": "100.0", "user": BOT, "text": "Did you mean `hey meme bank, forget #12`?"}]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", **mine})
+    assert bank.asks == [("DTONY", "UTONY", "forget #12", None)] and bank.deposits == []
+
+
+def test_a_suggestion_pasted_back_with_its_code_formatting_works(app_and_bank):
+    app, bank, history = app_and_bank
+    _suggested_in_thread(history)
+    send(app, _reply("`hey meme bank, tag this functionally useless`", ts="14.0", user="UTONY"))
+    assert bank.asks == [("CGEN", "UTONY", "tag this functionally useless", "10.0")] and bank.abouts == [35]
