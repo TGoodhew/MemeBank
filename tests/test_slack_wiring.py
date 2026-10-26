@@ -16,6 +16,8 @@ BOT = "UBOT123"
 class SpyBank:
     def __init__(self):
         self.deposits, self.asks, self.banked_by, self.confirms, self.said = [], [], [], [], []
+        self.abouts = []  # the meme each ask was about ("tag it ..."), or None
+        self.deposit_results = []  # what deposit_message returns
         self.banked = {}  # source key -> meme, for "is it already in the vault?"
         self.store = SimpleNamespace(find_by_source=self.banked.get)
 
@@ -29,10 +31,11 @@ class SpyBank:
     def deposit_message(self, client, channel, message, acknowledge=True, banked_by=""):
         self.deposits.append((channel, message.get("ts")))
         self.banked_by.append(banked_by)
-        return []
+        return self.deposit_results
 
-    def handle_ask(self, client, channel, user, rest, thread_ts=None):
+    def handle_ask(self, client, channel, user, rest, thread_ts=None, about=None):
         self.asks.append((channel, user, rest, thread_ts))
+        self.abouts.append(about)
 
 
 @pytest.fixture
@@ -52,7 +55,14 @@ def app_and_bank(monkeypatch):
                 msgs = msgs[:int(params.get("limit", 100))]
             data["messages"] = [m for m in msgs if m.get("thread_ts", m["ts"]) == m["ts"]]
         if api_method == "conversations.replies":
-            data["messages"] = history.get(params.get("ts"), [])
+            pages = history.get(("pages", params.get("ts")))  # a long thread, a page at a time
+            if pages:
+                page = int(params.get("cursor") or 0)
+                data["messages"] = pages[page]
+                if page + 1 < len(pages):
+                    data["response_metadata"] = {"next_cursor": str(page + 1)}
+            else:
+                data["messages"] = history.get(params.get("ts"), [])
         return SlackResponse(client=self, http_verb="POST", api_url=api_method, req_args={}, data=data,
                              headers={}, status_code=200)
 
@@ -345,7 +355,8 @@ def test_tag_it_straight_into_the_dm_tags_the_last_meme_banked_there(app_and_ban
     send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "22.0",
                "text": 'Tag it "Trump screamer" and "Beanie Girl"'})
     wait_for(lambda: bank.asks)
-    assert bank.asks == [("DTONY", "UTONY", 'tag #21 "Trump screamer" and "Beanie Girl"', None)]
+    assert bank.asks == [("DTONY", "UTONY", 'Tag it "Trump screamer" and "Beanie Girl"', None)]
+    assert bank.abouts == [21]
 
 
 def test_tag_it_after_a_dm_deposit_finds_the_banked_reply_in_the_images_thread(app_and_bank):
@@ -359,7 +370,8 @@ def test_tag_it_after_a_dm_deposit_finds_the_banked_reply_in_the_images_thread(a
     send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "31.0",
                "text": "tag it cabin trip"})
     wait_for(lambda: bank.asks)
-    assert bank.asks == [("DTONY", "UTONY", "tag #22 cabin trip", None)]  # not the older top-level #21
+    assert bank.asks == [("DTONY", "UTONY", "tag it cabin trip", None)]
+    assert bank.abouts == [22]  # not the older top-level #21
 
 
 def test_tag_it_with_nothing_banked_in_the_dm_is_left_for_the_bank_to_ask_which(app_and_bank):
@@ -367,7 +379,7 @@ def test_tag_it_with_nothing_banked_in_the_dm_is_left_for_the_bank_to_ask_which(
     send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "22.0",
                "text": "tag it cabin trip"})
     wait_for(lambda: bank.asks)
-    assert bank.asks == [("DTONY", "UTONY", "tag it cabin trip", None)]
+    assert bank.asks == [("DTONY", "UTONY", "tag it cabin trip", None)] and bank.abouts == [None]
 
 
 def test_plain_words_replied_under_the_banked_dm_become_tags(app_and_bank):
@@ -391,3 +403,139 @@ def test_bank_reaction_on_a_thread_reply_deposits_it(app_and_bank):
     send(app, {"type": "reaction_added", "user": "UTONY", "reaction": "bank",
                "item": {"type": "message", "channel": "CGEN", "ts": "7.1"}})
     assert bank.deposits == [("CGEN", "7.1")]
+
+
+# ---------------------------------------------------------------- "this"/"it" in a channel thread (#56)
+def _reply(text, ts="20.0", thread_ts="10.0", user="UZAK"):
+    return {"type": "message", "channel": "CGEN", "channel_type": "channel", "user": user, "ts": ts,
+            "thread_ts": thread_ts, "text": text}
+
+
+def test_tag_it_under_a_banked_image_post_tags_that_meme(app_and_bank):
+    app, bank, history = app_and_bank
+    bank.banked["slack:F1"] = SimpleNamespace(number=12, withdrawn_at="")
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "lol", "files": IMG}]
+    send(app, _reply(f"<@{BOT}> tag it too real"))
+    assert bank.asks == [("CGEN", "UZAK", "tag it too real", "10.0")] and bank.abouts == [12]
+
+
+def test_hey_meme_bank_works_in_a_thread_too(app_and_bank):
+    app, bank, history = app_and_bank
+    bank.banked["slack:F1"] = SimpleNamespace(number=12, withdrawn_at="")
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "lol", "files": IMG}]
+    send(app, _reply("hey meme bank, forget this"))
+    assert bank.asks == [("CGEN", "UZAK", "forget this", "10.0")] and bank.abouts == [12]
+
+
+@pytest.mark.parametrize("bot_text", [
+    "Banked as *#12: Cat hates Mondays*\n_cat, monday_",  # the deposit acknowledgement
+    "Dealer's choice: *#12: Cat hates Mondays* deposited by <@UTONY>\nAlso in the vault: #13 Dog  ·  #14 Fish",
+    "Tagged *#12: Cat hates Mondays* with _too real_\nAll tags: _cat, too real_",
+])
+def test_the_bot_naming_a_meme_in_the_thread_is_what_it_means(app_and_bank, bot_text):
+    app, bank, history = app_and_bank
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "hey meme bank, mondays"},
+                       {"ts": "11.0", "thread_ts": "10.0", "user": BOT, "bot_id": "BBOT", "text": bot_text}]
+    send(app, _reply(f"<@{BOT}> retag it"))
+    assert bank.abouts == [12]
+
+
+def test_a_meme_the_bot_posted_top_level_is_what_its_thread_means(app_and_bank):
+    app, bank, history = app_and_bank
+    history["10.0"] = [{"ts": "10.0", "user": BOT, "bot_id": "BBOT", "files": IMG,  # the bot's upload of #12
+                        "text": "*#12: Cat hates Mondays* deposited by <@UTONY>"}]
+    send(app, _reply(f"<@{BOT}> tag it too real"))
+    assert bank.abouts == [12] and bank.deposits == []  # its own copy isn't a new post to bank
+
+
+def test_the_nearest_meme_above_wins_and_later_ones_dont_count(app_and_bank):
+    app, bank, history = app_and_bank
+    bank.banked["slack:F1"] = SimpleNamespace(number=12, withdrawn_at="")
+    bank.banked["slack:F2"] = SimpleNamespace(number=15, withdrawn_at="")
+    img2 = [{**IMG[0], "id": "F2"}]
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "lol", "files": IMG},
+                       {"ts": "15.0", "thread_ts": "10.0", "user": "UKEVIN", "text": "even better", "files": img2},
+                       {"ts": "30.0", "thread_ts": "10.0", "user": BOT, "text": "Banked as *#40: Later*"}]
+    send(app, _reply(f"<@{BOT}> tag it too real", ts="20.0"))
+    assert bank.abouts == [15]
+
+
+def test_an_explicit_number_wins_over_the_thread(app_and_bank):
+    app, bank, history = app_and_bank
+    bank.banked["slack:F1"] = SimpleNamespace(number=15, withdrawn_at="")
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "lol", "files": IMG}]
+    send(app, _reply(f"<@{BOT}> tag #12 too real"))
+    assert bank.asks == [("CGEN", "UZAK", "tag #12 too real", "10.0")] and bank.abouts == [None]
+
+
+def test_a_post_with_several_banked_images_asks_which(app_and_bank):
+    app, bank, history = app_and_bank
+    bank.banked["slack:F1"] = SimpleNamespace(number=12, withdrawn_at="")
+    bank.banked["slack:F2"] = SimpleNamespace(number=13, withdrawn_at="")
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "two", "files": IMG + [{**IMG[0], "id": "F2"}]}]
+    send(app, _reply(f"<@{BOT}> tag it too real"))
+    assert bank.asks == [] and "Which one, #12 or #13?" in bank.said[0][1]
+
+
+def test_tagging_an_unbanked_post_banks_it_first(app_and_bank):
+    app, bank, history = app_and_bank
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "lol", "files": IMG}]
+    bank.deposit_results = [SimpleNamespace(meme=SimpleNamespace(number=31), status="new")]
+    send(app, _reply(f"<@{BOT}> tag it too real"))
+    assert bank.deposits == [("CGEN", "10.0")] and bank.banked_by == ["UZAK"]
+    assert bank.asks == [("CGEN", "UZAK", "tag it too real", "10.0")] and bank.abouts == [31]
+
+
+def test_tagging_an_unbanked_post_that_cant_be_banked_stops_there(app_and_bank):
+    app, bank, history = app_and_bank
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "lol", "files": IMG}]
+    send(app, _reply(f"<@{BOT}> tag it too real"))  # deposit_message returns nothing (it has said why)
+    assert bank.deposits == [("CGEN", "10.0")] and bank.asks == []
+
+
+def test_other_commands_on_an_unbanked_post_dont_bank_it(app_and_bank):
+    app, bank, history = app_and_bank
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "lol", "files": IMG}]
+    send(app, _reply(f"<@{BOT}> forget this"))
+    assert bank.deposits == [] and bank.asks == [] and "isn't in the vault yet" in bank.said[0][1]
+
+
+def test_no_meme_in_the_thread_or_a_top_level_message_leaves_it_to_the_bank_to_ask(app_and_bank):
+    app, bank, history = app_and_bank
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "anyone up for lunch?"}]
+    send(app, _reply(f"<@{BOT}> tag it too real"))
+    send(app, {"type": "message", "channel": "CGEN", "channel_type": "channel", "user": "UZAK", "ts": "30.0",
+               "text": f"<@{BOT}> tag it too real"})
+    assert bank.abouts == [None, None] and bank.deposits == []
+
+
+def test_a_search_in_a_thread_isnt_about_the_threads_meme(app_and_bank):
+    app, bank, history = app_and_bank
+    bank.banked["slack:F1"] = SimpleNamespace(number=12, withdrawn_at="")
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "lol", "files": IMG}]
+    send(app, _reply(f"<@{BOT}> find me the France meme"))
+    assert bank.asks == [("CGEN", "UZAK", "find me the France meme", "10.0")] and bank.abouts == [None]
+
+
+def test_a_long_threads_later_pages_are_read_for_the_nearest_meme(app_and_bank):
+    app, bank, history = app_and_bank
+    bank.banked["slack:F1"] = SimpleNamespace(number=12, withdrawn_at="")
+    history[("pages", "10.0")] = [
+        [{"ts": "10.0", "user": "UTONY", "text": "lol", "files": IMG},
+         {"ts": "11.0", "thread_ts": "10.0", "user": "UKEVIN", "text": "chat"}],
+        [{"ts": "15.0", "thread_ts": "10.0", "user": BOT, "text": "Banked as *#40: A later one*"}],
+    ]
+    send(app, _reply(f"<@{BOT}> tag it too real", ts="20.0"))
+    assert bank.abouts == [40]
+
+
+def test_tagging_a_partly_banked_post_banks_the_rest_and_asks_which(app_and_bank):
+    app, bank, history = app_and_bank
+    bank.banked["slack:F1"] = SimpleNamespace(number=12, withdrawn_at="")  # F2 isn't banked yet
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "two", "files": IMG + [{**IMG[0], "id": "F2"}]}]
+    bank.deposit_results = [SimpleNamespace(meme=SimpleNamespace(number=12), status="already"),
+                            SimpleNamespace(meme=SimpleNamespace(number=13), status="new")]
+    send(app, _reply(f"<@{BOT}> tag it too real"))
+    assert bank.deposits == [("CGEN", "10.0")] and bank.asks == [] and "Which one, #12 or #13?" in bank.said[0][1]
+    send(app, _reply(f"<@{BOT}> retag it", ts="21.0"))  # anything else goes with what's banked
+    assert bank.abouts == [12] and len(bank.deposits) == 1

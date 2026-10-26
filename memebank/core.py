@@ -15,7 +15,7 @@ from . import images
 from .search import search
 from .store import Meme
 from .tagger import Tags, clean_tags
-from .triggers import Command, parse_command, split_tags
+from .triggers import NUMBERED, Command, parse_command, split_tags
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +33,7 @@ HELP = """*The Meme Bank* :bank:
 • `hey meme bank, #12`  ·  `random`  ·  `stats`
 • `hey meme bank, tag #12 names, in-jokes` (anyone; `untag #12 word` for the poster or a bank manager)  ·  `retag #12` (Claude again)
 • `hey meme bank, forget #12` (asks a bank manager to remove it; they decide, and `restore #12` undoes it)
+*In a meme's thread*, "this" or "it" is that meme: `hey meme bank, tag it cabin trip`  ·  `untag this cabin trip`  ·  `retag this`  ·  `forget this`
 You can also @mention me, or DM me a question without the "hey meme bank"."""
 
 
@@ -208,7 +209,8 @@ class MemeBank:
     def _tag_hint(self, meme: Meme) -> str:
         return (f"Here are the tags I used:\n_{', '.join(meme.all_tags)}_\n"
                 f"Want to add others? Reply here with `tag it cabin trip, team lunch` (or just the words, in this thread), "
-                f"or from anywhere: `hey meme bank, tag #{meme.number} names, in-jokes`")
+                f"or from anywhere: `hey meme bank, tag #{meme.number} names, in-jokes` "
+                f"(or `hey meme bank, tag it …` in the meme's thread)")
 
     def _dm_tags(self, client, user: str, meme: Meme) -> None:
         if user.startswith(("U", "W")):  # a Slack person, not a bot or a local import
@@ -243,14 +245,20 @@ class MemeBank:
             self._say(client, channel, "\n".join(lines), thread_ts=thread or ts)
 
     # ------------------------------------------------------------------ withdrawals
-    def handle_ask(self, client, channel: str, user: str, rest: str, thread_ts: str | None = None) -> Command:
+    def handle_ask(self, client, channel: str, user: str, rest: str, thread_ts: str | None = None,
+                   about: int | None = None) -> Command:
+        """about: the meme the conversation is about (the meme in this thread, or a DM's last deposit), which is what
+        "tag it ..." or "forget this" without a number mean."""
         cmd = parse_command(rest)
+        if cmd.name in NUMBERED and cmd.number is None:
+            cmd.number = about
         memes = self.store.all()
         if cmd.name == "help":
             self._say(client, channel, HELP, thread_ts)
-        elif cmd.name == "tag" and cmd.number is None:  # "tag it ..." outside a DM, where there's no meme to infer
-            self._say(client, channel, "Which meme? Say `hey meme bank, tag #12 words, more words`.", thread_ts)
-        elif cmd.name in ("get", "forget", "restore", "retag", "tag", "untag"):
+        elif cmd.name in NUMBERED and cmd.number is None:  # "tag it ..." with no meme to point at
+            example = f"{cmd.name} #12 words, more words" if cmd.name in ("tag", "untag") else f"{cmd.name} #12"
+            self._say(client, channel, f"Which meme? Reply in its thread, or say `hey meme bank, {example}`.", thread_ts)
+        elif cmd.name in NUMBERED:
             self._numbered(client, channel, user, cmd, thread_ts)
         elif not memes:
             self._say(client, channel, "The vault is empty. Post something \"for the meme bank\" to make the first deposit.", thread_ts)
@@ -366,7 +374,8 @@ class MemeBank:
     def _post_meme(self, client, channel, meme: Meme, thread_ts=None, lead: str = "", extra: str = ""):
         who = f" deposited by <@{meme.posted_by}>" if meme.posted_by.startswith("U") else ""
         n = meme.number
-        how = f"\n_#{n} · add tags: `hey meme bank, tag #{n} …` · ask to remove: `hey meme bank, forget #{n}`_"
+        how = (f"\n_#{n} · add tags: `hey meme bank, tag #{n} …` (or in its thread, `hey meme bank, tag it …`)"
+               f" · ask to remove: `hey meme bank, forget #{n}`_")
         comment = f"{lead + ' ' if lead else ''}*#{n}: {meme.title}*{who}{extra}{how}"
         try:
             data = self.store.get_image(meme)

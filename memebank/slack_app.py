@@ -7,11 +7,15 @@ import re
 from slack_bolt import App
 
 from .core import CONFIRM_EVENT, MemeBank, images_in
-from .triggers import NEGATION_RE, classify, parse_command
+from .triggers import NEGATION_RE, NUMBERED, classify, parse_command
 
 log = logging.getLogger(__name__)
 
 BANKED_RE = re.compile(r"Banked (?:as )?\*#(\d+)")  # the bot's own "Banked as *#12: ..." messages
+# How the bot names a meme in anything it says about one: "Banked as *#12: ...", a posted meme ("*#12: ...*"),
+# "Already in the vault as *#12: ...", "Tagged *#12: ...".
+MEME_REF_RE = re.compile(r"\*#(\d+):")
+MAX_THREAD_PAGES = 20  # 200 replies a page: enough for any thread people still reply in
 # Answers to "want me to bank it?". "please" alone isn't consent ("please don't"), and a no is checked first.
 YES_RE = re.compile(r"\s*(?:please\s+)?(?:y|yes|yep|yeah|yup|sure|ok|okay|bank it|store it|do it|go ahead)\b", re.I)
 # A refusal anywhere in the reply wins: "okay, don't bank it" and "sure, but do not store it" are noes.
@@ -28,7 +32,8 @@ IGNORED_SUBTYPES = {"bot_message", "message_deleted", "channel_join", "channel_l
 
 def build_app(cfg, bank: MemeBank) -> App:
     app = App(token=cfg.slack_bot_token)
-    bot_user_id = app.client.auth_test()["user_id"]
+    auth = app.client.auth_test()
+    bot_user_id, bot_id = auth["user_id"], auth.get("bot_id")
     allowed = set(cfg.channel_ids)
 
     def channel_ok(channel: str, channel_type: str = "") -> bool:
@@ -72,18 +77,37 @@ def build_app(cfg, bank: MemeBank) -> App:
             bank.ask_to_bank(client, channel, event)
             return
         rest = trig.rest
+        user = event.get("user", "")
         cmd = parse_command(rest)
+        about = None  # the meme "it"/"this" means
         if channel_type == "im" and in_thread and cmd.name == "search":
             # Plain words replied under the bot's "Banked #12" DM are tags for #12, not a search.
             number = banked_number_in_thread(client, channel, thread_ts)
             if number:
                 rest = f"tag #{number} {rest}"
-        elif channel_type == "im" and cmd.name == "tag" and cmd.number is None:
+        elif channel_type == "im" and cmd.name in NUMBERED and cmd.number is None:
             # "Tag it ..." straight into the DM: the meme is the one the bot last said it banked here.
-            number = banked_number_in_thread(client, channel, thread_ts) if in_thread else latest_banked_in_dm(client, channel)
-            if number:
-                rest = f"tag #{number} {cmd.query}"
-        bank.handle_ask(client, channel, event.get("user", ""), rest, thread_ts=thread_ts)
+            about = banked_number_in_thread(client, channel, thread_ts) if in_thread else latest_banked_in_dm(client, channel)
+        elif in_thread and cmd.name in NUMBERED and cmd.number is None:
+            # "@Meme Bank tag it too real" replied under a meme in the channel
+            numbers, unbanked = meme_in_thread(client, channel, thread_ts, event["ts"])
+            if unbanked is not None and (cmd.name == "tag" or not numbers):  # (else: what's banked is what "it" can be)
+                if cmd.name != "tag":
+                    bank.say(client, channel, "That one isn't in the vault yet. React :bank: on it to bank it.", thread_ts)
+                    return
+                # Anyone can bank a post with a :bank: reaction, so asking to tag it banks it the same way.
+                # deposit_message replies with how that went, so a failure needs nothing more here.
+                numbers = list(dict.fromkeys(r.meme.number for r in
+                                             bank.deposit_message(client, channel, unbanked, banked_by=user)))
+                if not numbers:
+                    return
+            if len(numbers) > 1:
+                which = " or ".join(f"#{n}" for n in numbers)
+                bank.say(client, channel, f"Which one, {which}? Say `hey meme bank, {cmd.name} #{numbers[0]} …`",
+                         thread_ts)
+                return
+            about = numbers[0] if numbers else None
+        bank.handle_ask(client, channel, user, rest, thread_ts=thread_ts, about=about)
 
     def answer_confirm(client, event, in_thread: bool) -> bool:
         """An answer to a "want me to bank it?" DM: a reply in its thread, or a yes/no sent straight into the DM
@@ -178,6 +202,34 @@ def build_app(cfg, bank: MemeBank) -> App:
             return None
         banked = [(float(msg["ts"]), n) for msg in msgs for n in banked_numbers([msg])]
         return max(banked)[1] if banked else None
+
+    def meme_in_thread(client, channel: str, thread_ts: str, before: str) -> tuple[list[int], dict | None]:
+        """The meme a channel thread is about: the nearest message above `before` that's an image post (the thread's
+        own, or a reply) or the bot naming a meme ("Banked as *#12: ...", a meme it posted, "Tagged *#12: ...").
+        Returns (the banked numbers, the post if any of its images isn't banked yet); ([], None) if there's none."""
+        try:
+            msgs, cursor = [], None
+            for _ in range(MAX_THREAD_PAGES):  # replies come oldest first, so the nearest ones can be pages in
+                resp = client.conversations_replies(channel=channel, ts=thread_ts, latest=before, inclusive=False,
+                                                    limit=200, cursor=cursor)
+                msgs += resp.get("messages", [])
+                cursor = (resp.get("response_metadata") or {}).get("next_cursor")
+                if not cursor:
+                    break
+            for msg in sorted(msgs, key=lambda m: float(m.get("ts", 0)), reverse=True):  # nearest first
+                if float(msg.get("ts", 0)) >= float(before):
+                    continue
+                if msg.get("user") == bot_user_id or (bot_id and msg.get("bot_id") == bot_id):
+                    numbers = [int(n) for n in MEME_REF_RE.findall(msg.get("text", ""))]
+                    if numbers:
+                        return list(dict.fromkeys(numbers)), None
+                elif not msg.get("bot_id") and images_in(msg, channel):
+                    found = [bank.store.find_by_source(r.key) for r in images_in(msg, channel)]
+                    numbers = list(dict.fromkeys(m.number for m in found if m))
+                    return numbers, (None if all(found) else msg)
+        except Exception:  # noqa: BLE001
+            log.exception("Couldn't work out the meme in thread %s/%s", channel, thread_ts)
+        return [], None
 
     @app.event("reaction_added")
     def on_reaction(event, client):

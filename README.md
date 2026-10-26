@@ -30,6 +30,7 @@ Because the bank keeps its own copy of every image, a meme survives after Slack'
 | `hey meme bank, tag #12 dave, cabin trip` | adds tags (anyone can). Use it for names and in-jokes: Claude only names people whose names are written in the image or the caption |
 | `hey meme bank, untag #12 cabin trip` | removes a tag (the person who deposited it, or a bank manager) |
 | `hey meme bank, retag #12` | has Claude tag it again. Tags people added are kept |
+| in a meme's thread: `@Meme Bank tag it too real`, `hey meme bank, untag this cabin trip`, `retag this`, `forget this` | "this" or "it" is the meme the thread is about: the image post it hangs off, a picture posted further down, or a meme the bot posted there (the nearest one above). Tagging a post that isn't banked yet banks it first, as a :bank: reaction would. A number always wins: `tag #12 …` tags #12 wherever you say it |
 | `hey meme bank`, `hey meme bank, help`, or a question about the bot ("how do you work?", "what can you do?") | shows the help |
 
 It also responds to "yo/hi/ok meme bank …", "Meme bank: …", an @mention, or a DM, where everything you type without an image is treated as a question. Plain chat that happens to mention the meme bank, like "this is why the meme bank is important", gets ignored. If it has an image, the poster gets a DM asking whether to bank it, and nothing is banked unless they say yes. Every meme the bank posts ends with its number and how to tag it or ask for its removal.
@@ -119,7 +120,7 @@ memebank/
   search.py     Claude pick with keyword fallback
   store.py      AzureStore (Table + Blob) and LocalStore (SQLite + folder)
   images.py     download, resize for Claude, perceptual hash for reposts
-  slack_app.py  Bolt event wiring (messages, link-preview edits, :bank: reactions, yes/no answers, DM tagging)
+  slack_app.py  Bolt event wiring (messages, link-preview edits, :bank: reactions, yes/no answers, which meme "it" is in a thread or DM)
 scripts/        backfill.py, import_local.py, export.py (backup to a folder)
 tests/          pytest; test_azure_store.py runs against Azurite with AZURITE=1
 deploy/         deploy.ps1 (Azure resources, settings, secrets), setup-github-deploy.ps1 (one-time Actions sign-in)

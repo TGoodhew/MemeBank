@@ -91,8 +91,11 @@ def classify(text: str, has_images: bool, bot_user_id: str | None = None, is_dm:
 @dataclass
 class Command:
     name: str  # help | random | stats | get | forget | restore | retag | tag | untag | search
-    number: int | None = None
+    number: int | None = None  # None on a NUMBERED command: "this one", the meme the conversation is about
     query: str = ""
+
+
+NUMBERED = {"get", "forget", "restore", "retag", "tag", "untag"}
 
 
 _QUOTED = re.compile(r'"([^"]+)"|“([^”]+)”')
@@ -138,6 +141,14 @@ _HELP_RE = re.compile(
 )
 
 
+_THIS = r"(?:(?:this|that)(?:\s+one)?|it)"
+_THIS_NOT_IT = r"(?:this|that)(?:\s+one)?"
+
+
+def _number(digits: str | None) -> int | None:
+    return int(digits) if digits else None
+
+
 def parse_command(rest: str) -> Command:
     raw = (rest or "").strip().rstrip("?!. ")
     low = raw.lower()
@@ -147,15 +158,19 @@ def parse_command(rest: str) -> Command:
         return Command("random")
     if re.fullmatch(r"(?:stats|statistics|status|balance|how\s+many(?:\s+memes)?.*|what'?s\s+in\s+the\s+(?:bank|vault))", low):
         return Command("stats")
-    m = re.fullmatch(r"(?:forget|delete|remove|withdraw)\s+(?:meme\s+)?#?(\d+)", low)
+    # "#12", or "this"/"that one"/"it" for the meme being talked about (a thread's meme, or a DM's last deposit).
+    # "forget it" is left out: it usually means "never mind". "delete it" or "remove it" doesn't.
+    m = re.fullmatch(rf"(?:forget\s+{_THIS_NOT_IT}|(?:delete|remove|withdraw)\s+{_THIS}|"
+                     r"(?:forget|delete|remove|withdraw)\s+(?:meme\s+)?#?(\d+))", low)
     if m:
-        return Command("forget", int(m.group(1)))
-    m = re.fullmatch(r"(?:restore|unforget|undelete|un-?withdraw|undo\s+forget|bring\s+back)\s+(?:meme\s+)?#?(\d+)", low)
+        return Command("forget", _number(m.group(1)))
+    m = re.fullmatch(r"(?:restore|unforget|undelete|un-?withdraw|undo\s+forget|bring\s+back)\s+"
+                     rf"(?:{_THIS}|(?:meme\s+)?#?(\d+))", low)
     if m:
-        return Command("restore", int(m.group(1)))
-    m = re.fullmatch(r"(?:retag|re-tag|redo)\s+(?:meme\s+)?#?(\d+)", low)
+        return Command("restore", _number(m.group(1)))
+    m = re.fullmatch(rf"(?:retag|re-tag|redo)\s+(?:{_THIS}|(?:meme\s+)?#?(\d+))", low)
     if m:
-        return Command("retag", int(m.group(1)))
+        return Command("retag", _number(m.group(1)))
     # "tag #12 dave, cabin trip": the words keep their own text (comma separated) in query. (?!\d) stops
     # "tag #12" (no words) being read as "tag #1 with 2".
     m = re.fullmatch(r"(?:add\s+)?tags?\s+(?:to\s+)?(?:meme\s+)?#?(\d+)(?!\d)(?:\s+with\b)?(?:\s*[:,-]?\s*(.+))?",
@@ -165,6 +180,9 @@ def parse_command(rest: str) -> Command:
     m = re.fullmatch(r"(?:untag|remove\s+tags?)\s+(?:meme\s+)?#?(\d+)(?!\d)(?:\s*[:,-]?\s*(.+))?", raw, re.I | re.S)
     if m:
         return Command("untag", int(m.group(1)), query=(m.group(2) or "").strip())
+    m = re.fullmatch(rf"untag\s+(?:{_THIS}\b)?(?:\s*[:,-]?\s*(.+))?", raw, re.I | re.S)  # "untag this cabin trip"
+    if m:
+        return Command("untag", None, query=(m.group(1) or "").strip())
     # "Tag it "Distracted boyfriend" and "Beanie Girl"": no number, so number=None. In a DM the bot fills in the meme
     # from its last "Banked #N" message there; anywhere else it asks which meme.
     m = re.fullmatch(r"(?:please\s+)?(?:tag\s+(?:it|this(?:\s+one)?|that(?:\s+one)?)|add\s+tags?)"

@@ -182,6 +182,21 @@ def test_classify(text, has_img, dm, expect):
     ("tag this one with cabin trip", "tag", None, "cabin trip"),
     ("add tags: kevin", "tag", None, "kevin"),
     ("tag #12 without context", "tag", 12, "without context"),
+    # "this"/"it" instead of a number: the meme the thread is about (#56)
+    ("forget this", "forget", None, ""),
+    ("delete that one", "forget", None, ""),
+    ("forget it", "search", None, "forget it"),  # "never mind", not a removal
+    ("delete it", "forget", None, ""),  # ...but these are
+    ("remove it", "forget", None, ""),
+    ("withdraw that one", "forget", None, ""),
+    ("restore it", "restore", None, ""),
+    ("bring back this one", "restore", None, ""),
+    ("retag this", "retag", None, ""),
+    ("redo it", "retag", None, ""),
+    ("untag this cabin trip", "untag", None, "cabin trip"),
+    ("untag it: squad", "untag", None, "squad"),
+    ("untag cabin trip", "untag", None, "cabin trip"),
+    ("untag italy", "untag", None, "italy"),  # not "untag it" + "aly"
     ("could you find me the France meme?", "search", None, "the France meme"),
     ("What memes relate to France", "search", None, "What memes relate to France"),
     # questions about the bot itself are help, however they're worded (#50)
@@ -506,8 +521,32 @@ def test_tag_it_without_a_number_outside_a_dm_asks_which_meme(setup):
     bank, store, tagger, client = setup
     _fill(bank, client)
     bank.handle_ask(client, "CGEN", "UZAK", "tag it cabin trip")
-    assert "Which meme?" in client.named("chat_postMessage")[-1]["text"]
+    assert "Which meme? Reply in its thread" in client.named("chat_postMessage")[-1]["text"]
     assert not store.get(1).extra_tags and not store.get(2).extra_tags
+    bank.handle_ask(client, "CGEN", "UADMIN", "forget this")
+    assert "`hey meme bank, forget #12`" in client.named("chat_postMessage")[-1]["text"]
+    assert not store.get(1).withdrawn_at and not store.get(2).withdrawn_at
+
+
+def test_this_or_it_means_the_meme_the_conversation_is_about(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    say = lambda: client.named("chat_postMessage")[-1]["text"]  # noqa: E731
+    bank.handle_ask(client, "CGEN", "UZAK", "tag it too real", thread_ts="2.0", about=2)
+    assert "Tagged *#2: Baguette diplomacy* with _too real_" in say() and store.get(2).extra_tags == ["too real"]
+    bank.handle_ask(client, "CGEN", "UZAK", "tag #1 squad", about=2)  # an explicit number wins
+    assert store.get(1).extra_tags == ["squad"] and store.get(2).extra_tags == ["too real"]
+    bank.handle_ask(client, "CGEN", "UZAK", "untag this too real", about=2)  # not the poster or a manager
+    assert "Only whoever deposited #2" in say()
+    bank.handle_ask(client, "CGEN", "UKEVIN", "untag this too real", about=2)
+    assert store.get(2).extra_tags == []
+    bank.handle_ask(client, "CGEN", "UADMIN", "forget this", about=2)
+    assert store.get(2, include_withdrawn=True).withdrawn_at and not store.get(1).withdrawn_at
+    bank.handle_ask(client, "CGEN", "UADMIN", "restore it", about=2)
+    assert store.get(2) is not None
+    tagger.picks = lambda q: [2] if "france" in q.lower() else []
+    bank.handle_ask(client, "CGEN", "UZAK", "find me the France meme", about=1)  # a search ignores it
+    assert client.named("files_upload_v2")[-1]["initial_comment"].startswith("*#2: Baguette diplomacy*")
 
 
 def test_tag_with_no_words_asks_for_some_and_changes_nothing(setup):
