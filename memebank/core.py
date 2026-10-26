@@ -15,7 +15,7 @@ from . import images
 from .search import search
 from .store import Meme
 from .tagger import Tags, clean_tags
-from .triggers import NUMBERED, Command, hashtags_as_words, parse_command, split_tags
+from .triggers import NUMBERED, Command, hashtags_as_words, parse_command, split_tags, usage
 
 log = logging.getLogger(__name__)
 
@@ -33,9 +33,9 @@ HELP = """*The Meme Bank* :bank:
 • `hey meme bank, #12`  ·  `random`  ·  `stats`
 • `hey meme bank, tag #12 names, in-jokes` or `add #tooReal to #12` (anyone; `untag #12 word` for the poster or a bank manager)  ·  `retag #12` (Claude again)
 • `hey meme bank, forget #12` (asks a bank manager to remove it; they decide, and `restore #12` undoes it)
-*In a meme's thread*, "this" or "it" is that meme: `@Meme Bank add a tag #tooReal`  ·  `remove the tag cabin trip`  ·  `retag this`  ·  `forget this`
+*In a meme's thread*, "this" or "it" is that meme: `@Meme Bank add a tag #tooReal`  ·  `remove the tag cabin trip`  ·  `what are its tags?`  ·  `retag this`  ·  `forget this`
 (`#12` is a meme's number and `#tooReal` is a tag. For a tag that's all digits, quote it: `tag #12 "2020"`.)
-You can also @mention me, or DM me a question without the "hey meme bank"."""
+You can also @mention me, or DM me a question without the "hey meme bank". Ask however you like: "can you please tag this one …", "#12 thanks" and "what number is this?" all work."""
 
 
 @dataclass
@@ -254,13 +254,13 @@ class MemeBank:
         if cmd.name in NUMBERED and cmd.number is None:
             cmd.number = about
             if about is None and cmd.or_search:  # "hey meme bank, #mondays" with no meme in sight
-                cmd = Command("search", query=hashtags_as_words(cmd.query))
+                cmd = Command("search", query=hashtags_as_words(cmd.search_query or cmd.query))
         memes = self.store.all()
         if cmd.name == "help":
             self._say(client, channel, HELP, thread_ts)
         elif cmd.name in NUMBERED and cmd.number is None:  # "tag it ..." with no meme to point at
-            example = f"{cmd.name} #12 words, more words" if cmd.name in ("tag", "untag") else f"{cmd.name} #12"
-            self._say(client, channel, f"Which meme? Reply in its thread, or say `hey meme bank, {example}`.", thread_ts)
+            self._say(client, channel, f"Which meme? Reply in its thread, or say `hey meme bank, {usage(cmd.name)}`.",
+                      thread_ts)
         elif cmd.name in NUMBERED:
             self._numbered(client, channel, user, cmd, thread_ts)
         elif not memes:
@@ -293,6 +293,8 @@ class MemeBank:
             self._say(client, channel, f"#{n} was withdrawn from the vault. A bank manager can `restore #{n}`.", thread_ts)
         elif cmd.name == "get":
             self._post_meme(client, channel, meme, thread_ts)
+        elif cmd.name == "info":  # "what number is this?", "what are its tags?": no need to post the picture again
+            self._say(client, channel, f"That's *#{n}: {meme.title}*\nTags: _{', '.join(meme.all_tags)}_", thread_ts)
         elif cmd.name == "forget":
             if user in self.admins:
                 meme.withdrawn_at = _now()

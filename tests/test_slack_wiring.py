@@ -555,3 +555,12 @@ def test_a_bare_hashtag_straight_into_the_dm_is_still_a_search(app_and_bank):
     send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "22.0",
                "text": "#mondays"})
     assert bank.asks == [("DTONY", "UTONY", "#mondays", None)] and bank.abouts == [None]
+
+
+def test_which_one_suggests_a_command_that_works(app_and_bank):
+    app, bank, history = app_and_bank
+    bank.banked["slack:F1"] = SimpleNamespace(number=12, withdrawn_at="")
+    bank.banked["slack:F2"] = SimpleNamespace(number=13, withdrawn_at="")
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "two", "files": IMG + [{**IMG[0], "id": "F2"}]}]
+    send(app, _reply(f"<@{BOT}> tags?"))
+    assert "`hey meme bank, what are the tags on #12`" in bank.said[0][1]
