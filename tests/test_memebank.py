@@ -265,6 +265,7 @@ def test_classify(text, has_img, dm, expect):
     ("show tags for this", "info", None, ""),
     ("tags?", "info", None, ""),
     ("how is this tagged", "info", None, ""),
+    ("info #12", "info", 12, ""),  # what the bot used to suggest
     ("find the please-clap meme", "search", None, "the please-clap meme"),
     ("show me thank you memes", "search", None, "thank you memes"),
     ("the remove kebab one", "search", None, "the remove kebab one"),
@@ -625,6 +626,8 @@ def test_a_bare_hashtag_tags_the_meme_in_view_or_else_searches(setup):
     assert store.get(2).extra_tags == []
     bank.handle_ask(client, "CGEN", "UZAK", "#tooReal")  # searched for as stored: "too real", so keywords find #1
     assert tagger.pick_calls[-1][0] == "too real"
+    bank.handle_ask(client, "CGEN", "UZAK", "#paris thank you")  # the whole thing is searched for, manners and all
+    assert tagger.pick_calls[-1][0] == "paris thank you"
 
 
 def test_tag_it_without_a_number_outside_a_dm_asks_which_meme(setup):

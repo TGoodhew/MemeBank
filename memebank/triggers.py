@@ -96,9 +96,16 @@ class Command:
     number: int | None = None  # None on a NUMBERED command: "this one", the meme the conversation is about
     query: str = ""
     or_search: bool = False  # just hashtags ("#mondays"): tags for the meme being talked about, else a search
+    search_query: str = ""  # with or_search: what that search is for, if not just the hashtags ("#paris thank you")
 
 
 NUMBERED = {"get", "info", "forget", "restore", "retag", "tag", "untag"}
+
+
+def usage(name: str, number: int | str = 12) -> str:
+    """How to say a numbered command with its number, for the bot to suggest: "tag #12 words, more words"."""
+    return {"tag": f"tag #{number} words, more words", "untag": f"untag #{number} words", "get": f"#{number}",
+            "info": f"what are the tags on #{number}"}.get(name, f"{name} #{number}")
 
 
 _QUOTED = re.compile(r'"([^"]+)"|“([^”]+)”')
@@ -194,6 +201,8 @@ def parse_command(rest: str) -> Command:
     plain = _POLITE_END.sub("", _POLITE_START.sub("", raw)).strip().rstrip("?!.,: ")
     if plain and plain != raw:
         cmd = _parse(plain)
+        if cmd.or_search:  # "#paris thank you": if there's no meme to tag, search for all of it
+            cmd.search_query = _parse(raw).query
         if cmd.name != "search":
             return cmd
     return _parse(raw)
@@ -233,7 +242,8 @@ def _parse(raw: str) -> Command:
                      rf"|what(?:'s|\s+is)\s+(?:its|(?:this|that)(?:\s+one)?'s)\s+number"
                      rf"|(?:(?:what\s+are|show(?:\s+me)?|list|get)\s+)?(?:the\s+|its\s+|(?:this|that)(?:\s+one)?'s\s+)?"
                      rf"tags(?:\s+(?:on|for|of)\s+{_TARGET})?"
-                     rf"|(?:how|what)(?:'s|\s+is)\s+{_THIS}\s+tagged(?:\s+(?:with|as))?", low)
+                     rf"|(?:how|what)(?:'s|\s+is)\s+{_THIS}\s+tagged(?:\s+(?:with|as))?"
+                     r"|info\s+(?:on\s+|for\s+)?(?:meme\s+)?#?(\d+)", low)
     if m:
         return Command("info", _any_number(m))
     # Tags: the words keep their own text (comma separated, or hashtags) in query. number=None is "this one": the bot

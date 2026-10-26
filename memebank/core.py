@@ -15,7 +15,7 @@ from . import images
 from .search import search
 from .store import Meme
 from .tagger import Tags, clean_tags
-from .triggers import NUMBERED, Command, hashtags_as_words, parse_command, split_tags
+from .triggers import NUMBERED, Command, hashtags_as_words, parse_command, split_tags, usage
 
 log = logging.getLogger(__name__)
 
@@ -254,14 +254,13 @@ class MemeBank:
         if cmd.name in NUMBERED and cmd.number is None:
             cmd.number = about
             if about is None and cmd.or_search:  # "hey meme bank, #mondays" with no meme in sight
-                cmd = Command("search", query=hashtags_as_words(cmd.query))
+                cmd = Command("search", query=hashtags_as_words(cmd.search_query or cmd.query))
         memes = self.store.all()
         if cmd.name == "help":
             self._say(client, channel, HELP, thread_ts)
         elif cmd.name in NUMBERED and cmd.number is None:  # "tag it ..." with no meme to point at
-            example = {"tag": "tag #12 words, more words", "untag": "untag #12 words",
-                       "info": "what are the tags on #12"}.get(cmd.name, f"{cmd.name} #12")
-            self._say(client, channel, f"Which meme? Reply in its thread, or say `hey meme bank, {example}`.", thread_ts)
+            self._say(client, channel, f"Which meme? Reply in its thread, or say `hey meme bank, {usage(cmd.name)}`.",
+                      thread_ts)
         elif cmd.name in NUMBERED:
             self._numbered(client, channel, user, cmd, thread_ts)
         elif not memes:

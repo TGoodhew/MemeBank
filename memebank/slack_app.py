@@ -7,7 +7,7 @@ import re
 from slack_bolt import App
 
 from .core import CONFIRM_EVENT, MemeBank, images_in
-from .triggers import NEGATION_RE, NUMBERED, classify, parse_command
+from .triggers import NEGATION_RE, NUMBERED, classify, parse_command, usage
 
 log = logging.getLogger(__name__)
 
@@ -107,7 +107,7 @@ def build_app(cfg, bank: MemeBank) -> App:
                     return
             if len(numbers) > 1:
                 which = " or ".join(f"#{n}" for n in numbers)
-                bank.say(client, channel, f"Which one, {which}? Say `hey meme bank, {cmd.name} #{numbers[0]} …`",
+                bank.say(client, channel, f"Which one, {which}? Say `hey meme bank, {usage(cmd.name, numbers[0])}`",
                          thread_ts)
                 return
             about = numbers[0] if numbers else None
