@@ -539,3 +539,19 @@ def test_tagging_a_partly_banked_post_banks_the_rest_and_asks_which(app_and_bank
     assert bank.deposits == [("CGEN", "10.0")] and bank.asks == [] and "Which one, #12 or #13?" in bank.said[0][1]
     send(app, _reply(f"<@{BOT}> retag it", ts="21.0"))  # anything else goes with what's banked
     assert bank.abouts == [12] and len(bank.deposits) == 1
+
+
+def test_a_bare_hashtag_under_a_meme_is_about_it(app_and_bank):
+    app, bank, history = app_and_bank
+    bank.banked["slack:F1"] = SimpleNamespace(number=12, withdrawn_at="")
+    history["10.0"] = [{"ts": "10.0", "user": "UTONY", "text": "lol", "files": IMG}]
+    send(app, _reply(f"<@{BOT}> #tooReal"))
+    assert bank.asks == [("CGEN", "UZAK", "#tooReal", "10.0")] and bank.abouts == [12]
+
+
+def test_a_bare_hashtag_straight_into_the_dm_is_still_a_search(app_and_bank):
+    app, bank, history = app_and_bank
+    history[None] = [{"ts": "21.0", "user": BOT, "text": "Banked *#21: Cabin deck*. Here are the tags…"}]
+    send(app, {"type": "message", "channel": "DTONY", "channel_type": "im", "user": "UTONY", "ts": "22.0",
+               "text": "#mondays"})
+    assert bank.asks == [("DTONY", "UTONY", "#mondays", None)] and bank.abouts == [None]

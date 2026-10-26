@@ -197,6 +197,35 @@ def test_classify(text, has_img, dm, expect):
     ("untag it: squad", "untag", None, "squad"),
     ("untag cabin trip", "untag", None, "cabin trip"),
     ("untag italy", "untag", None, "italy"),  # not "untag it" + "aly"
+    # natural tag wording and hashtags (#57)
+    ("add a tag #tooReal", "tag", None, "#tooReal"),
+    ("add the tag too real", "tag", None, "too real"),
+    ("add tags cabin trip and team lunch", "tag", None, "cabin trip and team lunch"),
+    ("tag this #tooReal #mondays", "tag", None, "#tooReal #mondays"),
+    ("tag it as too real", "tag", None, "too real"),
+    ('tag this one with "rock and roll"', "tag", None, '"rock and roll"'),
+    ("tag #tooReal", "tag", None, "#tooReal"),
+    ("tag #2020s", "tag", None, "#2020s"),  # a hashtag, not meme #2020
+    ("add #tooReal", "tag", None, "#tooReal"),
+    ("add #tooReal to #12", "tag", 12, "#tooReal"),
+    ("add the tag too real to 12", "tag", 12, "too real"),
+    ("add #tooReal to this one", "tag", None, "#tooReal"),
+    ("tag #12 as #tooReal", "tag", 12, "#tooReal"),
+    ("tag <#C0123456789|tooreal>", "tag", None, "#tooreal"),  # Slack made it a channel link
+    ("#tooReal", "tag", None, "#tooReal"),
+    ("remove the tag #tooReal", "untag", None, "#tooReal"),
+    ("remove tag too real from #12", "untag", 12, "too real"),
+    ("untag this #tooReal", "untag", None, "#tooReal"),
+    ("drop the #tooReal tag", "untag", None, "#tooReal"),
+    ("take #tooReal off", "untag", None, "#tooReal"),
+    ("remove #tooReal from this", "untag", None, "#tooReal"),
+    ("delete the cabin trip tag from meme 7", "untag", 7, "cabin trip"),
+    ("memes tagged too real", "search", None, "memes tagged too real"),
+    ("find the add-a-tag meme", "search", None, "the add-a-tag meme"),
+    ("what's #12", "search", None, "what's #12"),
+    ("remove the France meme", "search", None, "remove the France meme"),
+    ("add this to the meme bank", "search", None, "add this to the meme bank"),
+    ("delete #12", "forget", 12, ""),
     ("could you find me the France meme?", "search", None, "the France meme"),
     ("What memes relate to France", "search", None, "What memes relate to France"),
     # questions about the bot itself are help, however they're worded (#50)
@@ -503,6 +532,10 @@ def test_anyone_can_add_tags_and_they_survive_a_retag(setup):
     ("brandon; candy", ["brandon", "candy"]),
     ("kevin &amp; zak", ["kevin", "zak"]),  # Slack sends a typed & as &amp;
     ('"mac &amp; cheese", &lt;3', ["mac & cheese", "<3"]),
+    ("#tooReal #mondays", ["too Real", "mondays"]),  # clean_tags lowercases them later
+    ("cabin trip #too_real, #iPhone and #COVID19", ["cabin trip", "too real", "iPhone", "COVID19"]),
+    ("#rock-n-roll", ["rock n roll"]),
+    ("#tooreal", ["tooreal"]),
     ("", []),
 ])
 def test_split_tags(text, tags):
@@ -515,6 +548,27 @@ def test_tag_reply_names_the_tags_that_were_already_there(setup):
     bank.handle_ask(client, "CGEN", "UZAK", 'tag #1 "Trump screamer" and cuba')  # cuba is one of Claude's
     text = client.named("chat_postMessage")[-1]["text"]
     assert "with _trump screamer_ (already had: cuba)" in text and store.get(1).extra_tags == ["trump screamer"]
+
+
+def test_hashtags_are_stored_as_words_and_untag_ignores_the_spaces(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    say = lambda: client.named("chat_postMessage")[-1]["text"]  # noqa: E731
+    bank.handle_ask(client, "CGEN", "UZAK", "add a tag #tooReal #mondays", about=2)
+    assert "with _too real, mondays_" in say() and store.get(2).extra_tags == ["too real", "mondays"]
+    bank.handle_ask(client, "CGEN", "UKEVIN", "take #tooreal off", about=2)
+    assert "Removed _too real_" in say() and store.get(2).extra_tags == ["mondays"]
+
+
+def test_a_bare_hashtag_tags_the_meme_in_view_or_else_searches(setup):
+    bank, store, tagger, client = setup
+    _fill(bank, client)
+    tagger.picks = lambda q: [2] if "paris" in q.lower() else []
+    bank.handle_ask(client, "CGEN", "UZAK", "#tooReal", about=1)
+    assert store.get(1).extra_tags == ["too real"]
+    bank.handle_ask(client, "CGEN", "UZAK", "#paris")
+    assert client.named("files_upload_v2")[-1]["initial_comment"].startswith("*#2: Baguette diplomacy*")
+    assert store.get(2).extra_tags == []
 
 
 def test_tag_it_without_a_number_outside_a_dm_asks_which_meme(setup):
