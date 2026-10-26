@@ -260,6 +260,9 @@ def test_classify(text, has_img, dm, expect):
     ("untag this, the tag doh", "untag", None, "doh"),
     ("untag #14: with doh", "untag", 14, "doh"),
     ("untag #14 - as doh", "untag", 14, "doh"),
+    ("untag #14 as-is", "untag", 14, "as-is"),  # hyphenated and possessive names aren't "with"/"as"/"the tag"
+    ("untag this with-it", "untag", None, "with-it"),
+    ("untag #14 the tag's meaning", "untag", 14, "the tag's meaning"),
     ("untag #14 tag team", "untag", 14, "tag team"),  # a bare "tag" is still part of the tag
     ("untag without context", "untag", None, "without context"),
     ("memes tagged too real", "search", None, "memes tagged too real"),

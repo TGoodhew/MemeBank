@@ -182,7 +182,8 @@ _THIS_NOT_IT = r"(?:this|that)(?:\s+one)?"
 _TARGET = rf"(?:{_THIS}\b|(?:meme\s+)?#?(\d+)(?![\w'-]))"
 _A = r"(?:(?:a|an|the|some|these)\s+)"
 _WORDS = r"(?:\s*[:,-]?\s*(.+))?"  # the tags, if any
-_UNTAG_FILLER = r"(?:\s*[:,-]?\s*\b(?:with|as|the\s+tags?)\b)?"  # "untag #14 with doh", "untag this, the tag doh"
+# "untag #14 with doh", "untag this, the tag doh". (?![\w'-]) keeps "as-is", "with-it" and "the tag's meaning" whole.
+_UNTAG_FILLER = r"(?:\s*[:,-]?\s*\b(?:with|as|the\s+tags?)(?![\w'-]))?"
 _HASHTAGS = rf"{_HASHTAG.pattern}(?:[\s,]+(?:and\s+)?{_HASHTAG.pattern})*"
 _REMOVE_WORD = r"(?:remove|drop|delete|take\s+off|take|strip)"  # needs "tag" (or a hashtag) to be about tags
 _REMOVE = rf"(?:untag|{_REMOVE_WORD})"
