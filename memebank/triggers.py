@@ -110,17 +110,25 @@ def _hashtag_words(tag: str) -> str:
     return " ".join(re.sub(r"(?<=[a-z]{2})(?=[A-Z])|[_-]+", " ", tag.lstrip("#").strip("'")).split())
 
 
+def hashtags_as_words(text: str) -> str:
+    """'#tooReal memes' -> 'too real memes': hashtags in the form they're stored in, for searching."""
+    return _HASHTAG.sub(lambda m: _hashtag_words(m.group()), text or "")
+
+
 def split_tags(text: str) -> list[str]:
     """'"Distracted boyfriend" and "Beanie Girl"' -> ['Distracted boyfriend', 'Beanie Girl']. Quoted phrases stay whole
     (so "rock and roll" can be one tag); the rest splits on commas, semicolons, & and the word "and", and each
-    hashtag is a tag of its own ("#tooReal #mondays" -> ['too real', 'mondays'])."""
+    hashtag is a tag of its own, whole ("#tooReal #rock-and-roll" -> ['too real', 'rock and roll'])."""
     text = (text or "").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")  # Slack escapes these three
     pieces = _QUOTED.split(text)  # [outside, quote, quote, outside, quote, quote, outside, ...]
     out: list[str] = []
     for i in range(0, len(pieces), 3):
-        for w in re.split(r"[,;&]|\band\b", pieces[i], flags=re.I):
-            out.append(_HASHTAG.sub(" ", w).strip(" '\"“”"))
-            out += [_hashtag_words(t) for t in _HASHTAG.findall(w)]
+        # [words, hashtag, words, hashtag, ...]: hashtags come out first, so "and" inside one doesn't split it
+        for j, part in enumerate(re.split(f"({_HASHTAG.pattern})", pieces[i])):
+            if j % 2:
+                out.append(_hashtag_words(part))
+            else:
+                out += [w.strip(" '\"“”") for w in re.split(r"[,;&]|\band\b", part, flags=re.I)]
         if i + 2 < len(pieces):
             out.append(pieces[i + 1] or pieces[i + 2])
     return [t.strip() for t in out if t and t.strip()]
@@ -156,8 +164,8 @@ _HELP_RE = re.compile(
 _THIS = r"(?:(?:this|that)(?:\s+one)?|it)"
 _THIS_NOT_IT = r"(?:this|that)(?:\s+one)?"
 # Which meme a tag goes on or comes off: "this"/"it", or "#12"/"meme 12"/"12" (one capture group: the number).
-# (?!\w) stops "#2020s" (a hashtag) being read as #2020.
-_TARGET = rf"(?:{_THIS}\b|(?:meme\s+)?#?(\d+)(?!\w))"
+# (?![\w'-]) stops "#2020s" or "#12-monkeys" (hashtags) being read as a meme number.
+_TARGET = rf"(?:{_THIS}\b|(?:meme\s+)?#?(\d+)(?![\w'-]))"
 _A = r"(?:(?:a|an|the|some|these)\s+)"
 _WORDS = r"(?:\s*[:,-]?\s*(.+))?"  # the tags, if any
 _HASHTAGS = rf"{_HASHTAG.pattern}(?:[\s,]+(?:and\s+)?{_HASHTAG.pattern})*"
@@ -194,15 +202,15 @@ def parse_command(rest: str) -> Command:
     if m:
         return Command("retag", _number(m.group(1)))
     # Tags: the words keep their own text (comma separated, or hashtags) in query. number=None is "this one": the bot
-    # fills in the meme the thread or DM is about, or asks which. (?!\w) stops "tag #12" (no words) being read as
-    # "tag #1 with 2".
+    # fills in the meme the thread or DM is about, or asks which. (?![\w'-]) stops "tag #12" (no words) being read as
+    # "tag #1 with 2", and "tag #12-monkeys" (a hashtag) being read as meme #12.
     flags = re.I | re.S
     # "tag #12 dave, cabin trip" · "add tags to #3: x" · "tag #12 as #tooReal"
-    m = re.fullmatch(rf"(?:add\s+{_A}?)?tags?\s+(?:to\s+)?(?:meme\s+)?#?(\d+)(?!\w)(?:\s+(?:with|as)\b)?{_WORDS}",
+    m = re.fullmatch(rf"(?:add\s+{_A}?)?tags?\s+(?:to\s+)?(?:meme\s+)?#?(\d+)(?![\w'-])(?:\s+(?:with|as)\b)?{_WORDS}",
                      raw, flags)
     if m:
         return Command("tag", int(m.group(1)), query=(m.group(2) or "").strip())
-    m = re.fullmatch(rf"(?:untag|remove\s+tags?)\s+(?:meme\s+)?#?(\d+)(?!\w){_WORDS}", raw, flags)  # "untag #12 squad"
+    m = re.fullmatch(rf"(?:untag|remove\s+tags?)\s+(?:meme\s+)?#?(\d+)(?![\w'-]){_WORDS}", raw, flags)  # "untag #12 squad"
     if m:
         return Command("untag", int(m.group(1)), query=(m.group(2) or "").strip())
     m = re.fullmatch(rf"add\s+{_A}?(?:tags?\s+)?(.+?)\s+(?:to|on)\s+{_TARGET}", raw, flags)  # "add #tooReal to #12"
