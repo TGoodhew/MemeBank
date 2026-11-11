@@ -16,6 +16,30 @@ log = logging.getLogger("memebank")
 HEARTBEAT_SECONDS = 3600
 
 
+class ConnectionDropsAreWarnings(logging.Filter):
+    """Log the Socket Mode client's dropped-connection lines as WARNING, not ERROR.
+
+    When Slack's WebSocket drops (it happens a few times a day), the client logs an ERROR for each failed
+    ping until it reconnects by itself, usually within a minute. That set off the errors alert (deploy.ps1)
+    with nothing broken. Each of those lines names the session ("(session id: ...)"), and a failed listener
+    or Slack API call doesn't, so those still log as ERROR. A connection that stays down is caught by the
+    gone-quiet alert instead.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno == logging.ERROR and "(session id: " in record.getMessage():
+            record.levelno, record.levelname = logging.WARNING, logging.getLevelName(logging.WARNING)
+        return True
+
+
+def socket_mode_logger() -> logging.Logger:
+    """The logger for SocketModeHandler's client, with its connection drops logged as warnings."""
+    logger = logging.getLogger("slack_bolt.SocketMode")
+    if not any(isinstance(f, ConnectionDropsAreWarnings) for f in logger.filters):
+        logger.addFilter(ConnectionDropsAreWarnings())
+    return logger
+
+
 def heartbeat_line(handler, store) -> str:
     return f"Heartbeat: connected={handler.client.is_connected()}, {len(store.all())} memes"
 
@@ -44,7 +68,7 @@ def main() -> None:
     bank = MemeBank(store, tagger, cfg.slack_bot_token, cfg.admin_user_ids, cfg.ack_mode, dm_tags=cfg.dm_tags)
     app = build_app(cfg, bank)
     log.info("Meme Bank open for business (%s storage, %d memes)", cfg.storage_backend, len(store.all()))
-    handler = SocketModeHandler(app, cfg.slack_app_token)
+    handler = SocketModeHandler(app, cfg.slack_app_token, logger=socket_mode_logger())
     threading.Thread(target=heartbeat, args=(handler, store), daemon=True, name="heartbeat").start()
     handler.start()
 
