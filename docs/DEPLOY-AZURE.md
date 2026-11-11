@@ -201,7 +201,7 @@ The bot picks up memes added by these scripts within a minute.
   | Alert | Fires when |
   |---|---|
   | `memebank-crashloop` | One revision's container is terminated 3 or more times in an hour (a crash loop: a bad token or a missing setting). This also fires once for the very first deploy, whose app starts before its secrets exist |
-  | `memebank-errors` | The bot logs an `ERROR` or a traceback (a deposit, search, upload or Claude call failed) |
+  | `memebank-errors` | The bot logs an `ERROR` or a traceback (a deposit, search, upload or Claude call failed). A dropped Slack connection that the bot reconnects by itself (`Failed to check the state of sock …`) is logged as a `WARNING`, so it doesn't fire this |
   | `memebank-quiet` | No `Heartbeat: connected=True` line for 2 hours (the bot is hung, stopped or disconnected from Slack). It logs one about a minute after starting and then hourly |
 
   They're under **Monitor → Alerts** in the portal, or in `rg-memebank` as *Alert rules*. Leave `ALERT_EMAIL` blank for no alerts.
